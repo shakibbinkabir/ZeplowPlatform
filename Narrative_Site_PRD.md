@@ -1,6 +1,6 @@
 # ZEPLOW NARRATIVE SITE (narrative.zeplow.com) — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** March 27, 2026
 **Derived From:** Zeplow Platform Central PRD v1.1, Creative Agency Brand Document, Company Profile
 **Original Author:** Shakib Bin Kabir
@@ -93,6 +93,13 @@ From the brand document — the **Ideal Customer Profile**:
 - E-commerce or payment processing
 - Public pricing page (pricing is custom per project, follows the "No-Loss Formula" internally)
 - Newsletter signup system (out of scope for V1)
+
+### 1.6 Known Limitations
+
+- **No content versioning** — manual CMS rollback only. The CMS does not support draft history or version diffing.
+- **No offline/service worker support in V1** — the site is a standard static export with no PWA capabilities.
+- **Image optimization relies on Spatie conversions + Cloudflare CDN, not Next.js Image component** — because static export uses `unoptimized: true`, all image sizing and format optimization must happen at the CMS level (via Spatie MediaLibrary conversions) and at the CDN level (via Cloudflare caching/Polish). The frontend does not resize, compress, or convert images at build time.
+- **Texture/collage overlay treatment is a pre-upload responsibility** — the visual rules in Section 2.4 describe collage/texture overlays as part of Narrative's signature style. These treatments must be applied to images before upload in the CMS. The frontend does not apply image filters, overlays, or compositing at build time.
 
 ---
 
@@ -828,6 +835,26 @@ Same `ContentRenderer` component as all sites. The visual design of block compon
 | `gallery` | Full-bleed image gallery with lightbox. Photographic, not diagrammatic. |
 | `image` | Full-width treatment with texture/overlay option |
 
+### 9.1 Responsive Image Strategy
+
+Since Next.js static export uses `unoptimized: true` (no built-in image optimization), the Narrative site — which is the most image-heavy site in the platform (portfolio, editorial photography, Feature Stories) — must explicitly manage image sizes using Spatie MediaLibrary conversions from the CMS.
+
+**Image size mapping by context:**
+
+| Context | Conversion | Dimensions | Example Usage |
+|:---|:---|:---|:---|
+| Hero images, full-width backgrounds | `large` | 1920×1080 | Home hero, Feature Story hero, page hero sections |
+| Project cards on /work grid | `medium` | 800×600 | Portfolio grid cards, homepage featured projects |
+| Feature Story inline images | `medium` | 800×600 | Supporting images within /work/[slug] |
+| Blog cover images on /insights listing | `medium` | 800×600 | BlogCard cover images |
+| Thumbnail previews | `thumbnail` | 300×300 | Team photos, small avatars, compact previews |
+
+**URL pattern for Spatie conversions:** `conversions/{original-filename}-{conversion}.{ext}`
+
+**Shared API client image helper:** The `@zeplow/api` package's image helper should accept a `conversion` parameter (e.g., `getImageUrl(image, 'medium')`) so that each component can request the appropriate size without hardcoding URL patterns.
+
+**Mandatory `<img>` attributes:** All `<img>` tags must include `width`, `height`, `alt`, and `loading="lazy"` attributes. Above-the-fold hero images should use `loading="eager"` or Next.js `priority`. Given Narrative's image-heavy nature, lazy loading is critical for Lighthouse performance scores.
+
 ---
 
 ## 10. CONTACT FORM
@@ -916,6 +943,13 @@ Same targets: Lighthouse 95+, TTFB < 50ms, LCP < 1.2s, page weight < 200 KB (exc
 - Hero images: loaded eagerly, optimised for LCP
 - Portfolio images: `loading="lazy"` aggressively
 - Recommend Spatie MediaLibrary conversions on CMS side (medium: 800x600 for cards, large: 1920x1080 for heroes)
+
+**Narrative-specific image performance targets:**
+
+- Portfolio grid (`/work`) should not exceed 12 project cards per initial view. Use pagination or "Load More" if >12 projects.
+- Feature Story pages (`/work/[slug]`) should lazy-load all images below the first hero image.
+- Target: Total page weight for `/work` grid < 2 MB on initial load (including images).
+- Leverage Cloudflare's automatic WebP conversion (via Polish, if available on free tier) or serve pre-optimized WebP images from the CMS. If Polish is not available on the free tier, all portfolio and Feature Story images should be exported as WebP from the CMS before upload.
 
 ---
 
@@ -1018,6 +1052,8 @@ Example projects to seed (adapt from actual Narrative work or create representat
 | [Brand Project 2] | "From faceless D2C brand to founder-led movement" | Personal Care | true |
 | [Brand Project 3] | "Making a real estate firm feel human in a cold market" | Real Estate | true |
 
+**Important — Feature Story image sourcing:** All Feature Story project images must be uploaded to the CMS via Spatie MediaLibrary. The sync payload will include absolute URLs to `cms.zeplow.com/storage/...`. Do NOT use placeholder image services (like Unsplash CDN URLs) in production seeding — all images must be self-hosted on the CMS. This ensures image availability is not dependent on third-party services and that Spatie conversions (large, medium, thumbnail) are generated correctly for each uploaded image.
+
 ### 16.4 Site Config to Create
 
 | Field | Value |
@@ -1114,6 +1150,7 @@ apps/narrative/
 │   ├── contact/
 │   │   └── page.tsx                   # Contact form (/contact)
 │   ├── sitemap.ts                     # Dynamic sitemap (pages + projects + blog)
+│   ├── not-found.tsx                  # Custom 404 page (Narrative-branded)
 │   └── robots.ts
 ├── components/                        # Narrative-site-specific components
 │   ├── HeartbeatCTA.tsx               # "Book a Heartbeat Review" styled CTA
@@ -1127,6 +1164,7 @@ apps/narrative/
 │   │   └── Manrope-Bold.woff2
 │   ├── robots.txt
 │   ├── _headers
+│   ├── 404.html                       # Static 404 fallback for Cloudflare Pages
 │   ├── favicon.ico
 │   ├── logo.png
 │   └── og-default.jpg
@@ -1142,6 +1180,17 @@ apps/narrative/
 ## 19. ERROR HANDLING
 
 Same as other sites. Build-time failures keep previous deploy live. Contact form shows fallback messages. Broken images show alt text. Site fully functional without JS except contact form.
+
+### 19.1 Custom Error Pages
+
+Create a custom `not-found.tsx` (`apps/narrative/app/not-found.tsx`) with Narrative branding:
+
+- **Heading:** Playfair Display serif font, consistent with site typography
+- **Accent:** Vibrant Coral `#ff6f59` used for CTA button or accent elements
+- **Navigation and footer:** Include the same Navigation and Footer components from site config (via `getSiteConfig('narrative')`) so the 404 page feels like part of the site, not a dead end
+- **Tone:** The 404 page should maintain the editorial, magazine feel — not a generic "Page not found" template. Use Narrative's voice: e.g., "This story doesn't exist yet." or "Looks like this page wandered off. Let's get you back to the good stuff."
+- **CTA:** Include a link back to `/` (Home) and `/work` (Portfolio) to re-engage the visitor
+- **Static fallback:** Create a `public/404.html` file as a fallback for Cloudflare Pages. This file should contain a minimal version of the 404 page with inline styles matching Narrative's brand (Pine Teal, Coral, Playfair Display via Google Fonts or system serif fallback). Cloudflare Pages serves `404.html` automatically when no matching route is found.
 
 ---
 
@@ -1265,6 +1314,7 @@ Same as other sites. Build-time failures keep previous deploy live. Contact form
 | Feature Story layout renders correctly | Editorial headline, challenge, strategy, outcome, images | ☐ |
 | HeartbeatCTA renders on contact page and project pages | "Book a Heartbeat Review" text visible | ☐ |
 | Portfolio grid has editorial feel | Image-dominant cards, not clinical | ☐ |
+| Block font files in DevTools → verify fallback fonts render | Georgia (heading fallback) and system-ui (body fallback) render correctly without layout shift | ☐ |
 
 ### 21.4 SEO Tests
 
@@ -1275,6 +1325,7 @@ Same as other sites. Build-time failures keep previous deploy live. Contact form
 | Blog posts have ArticleSchema | Valid JSON-LD | ☐ |
 | `/sitemap.xml` accessible | Valid XML with pages + projects + blog | ☐ |
 | `/robots.txt` accessible | Correct content | ☐ |
+| Validate JSON-LD using Google's Rich Results Test tool | OrganizationSchema and ArticleSchema have no errors | ☐ |
 
 ### 21.5 Contact Form Tests
 
