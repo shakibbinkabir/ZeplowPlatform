@@ -961,7 +961,7 @@ Same targets: Lighthouse 95+, TTFB < 50ms, LCP < 1.2s, page weight < 200 KB (exc
 |:---|:---|
 | Project name | `zeplow-narrative` |
 | Production branch | `main` |
-| Build command | `cd apps/narrative && npx next build` |
+| Build command | `npx pnpm install --frozen-lockfile && npx pnpm run build:narrative` |
 | Build output directory | `apps/narrative/out` |
 | Root directory | `/` |
 | Node.js version | `18` |

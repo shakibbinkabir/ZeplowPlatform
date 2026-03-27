@@ -230,7 +230,7 @@ Step 1: Visitor fills out contact form on any frontend site (runtime, in browser
 
 Step 2: Browser POSTs to /sites/v1/{siteKey}/contact
         - Payload: { name, email, company, message, budget_range, source }
-        - Includes hidden honeypot field (fax_number)
+        - Includes hidden honeypot field (website_url)
 
 Step 3: API checks honeypot — if filled, return fake 200 success (bot detected, nothing stored)
 
@@ -1839,7 +1839,7 @@ class SiteTeamController extends Controller
 | `budget_range` | nullable, string, max:100 |
 | `source` | nullable, string, max:255 |
 
-**Spam Protection:** Hidden honeypot field (`fax_number`). The field name is chosen to sound like a real form field to trick bots, but it is not part of the actual form. If the hidden field is filled by a bot, the API returns a fake success response without storing or emailing. The response is identical to a real success — never alert the bot.
+**Spam Protection:** Hidden honeypot field (`website_url`). If the hidden field is filled by a bot, the API returns a fake success response without storing or emailing. The response is identical to a real success — never alert the bot.
 
 **Success Response (200):**
 
@@ -1890,7 +1890,7 @@ class ContactController extends Controller
     public function store(Request $request, string $siteKey)
     {
         // Layer 1: Honeypot check — reject silently if filled
-        if ($request->filled('fax_number')) {
+        if ($request->filled('website_url')) {
             return response()->json([
                 'status'  => 'received',
                 'message' => 'Thank you. We\'ll be in touch within 24 hours.',
@@ -3128,7 +3128,7 @@ api-app/
 | 7.7 | Test: Content sync → deploy hook fires → Cloudflare rebuilds | Full pipeline test | 7.3, 7.5 |
 | 7.8 | Test: Contact form submission → email received | End-to-end contact test | 7.2 |
 | 7.9 | Test: Rate limiting works | 60+ requests in 1 minute → 429 | 7.2 |
-| 7.10 | Test: Honeypot detection works | Submit with fax_number filled → fake 200, nothing stored | 7.2 |
+| 7.10 | Test: Honeypot detection works | Submit with website_url filled → fake 200, nothing stored | 7.2 |
 | 7.11 | Create `scripts/test-api.sh` | Automated API test script (see Section 24.5) | 7.2 |
 | 7.12 | Run automated tests against production | Execute `scripts/test-api.sh` and verify all pass | 7.11 |
 
@@ -3200,7 +3200,7 @@ check "POST /internal/v1/sync/content without auth returns 401" "401" "$STATUS"
 echo "[4] Spam Protection"
 STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
   -H "Content-Type: application/json" \
-  -d '{"name":"Bot","email":"bot@test.com","message":"spam","fax_number":"gotcha"}' \
+  -d '{"name":"Bot","email":"bot@test.com","message":"spam","website_url":"gotcha"}' \
   "$BASE/sites/v1/narrative/contact")
 check "POST contact with honeypot returns 200 (fake success)" "200" "$STATUS"
 
@@ -3262,7 +3262,7 @@ echo "=== Results: $PASS passed, $FAIL failed ==="
 | POST /sites/v1/narrative/contact with valid data | Returns 200, email sent, stored in DB | ☐ |
 | POST /sites/v1/narrative/contact with missing name | Returns 422 with validation errors | ☐ |
 | POST /sites/v1/narrative/contact with invalid email | Returns 422 with validation errors | ☐ |
-| POST /sites/v1/narrative/contact with honeypot (`fax_number`) filled | Returns fake 200, nothing stored | ☐ |
+| POST /sites/v1/narrative/contact with honeypot (`website_url`) filled | Returns fake 200, nothing stored | ☐ |
 | Submit without Turnstile token | Returns fake 200, nothing stored | ☐ |
 | Submit with invalid Turnstile token | Returns fake 200, nothing stored | ☐ |
 | Submit with valid Turnstile token + valid data | Returns 200, submission stored, email sent | ☐ |

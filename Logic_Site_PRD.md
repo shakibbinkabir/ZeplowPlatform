@@ -900,7 +900,7 @@ Same targets as parent site. Lighthouse 95+, TTFB < 50ms, LCP < 1.2s, page weigh
 |:---|:---|
 | Project name | `zeplow-logic` |
 | Production branch | `main` |
-| Build command | `cd apps/logic && npx next build` |
+| Build command | `npx pnpm install --frozen-lockfile && npx pnpm run build:logic` |
 | Build output directory | `apps/logic/out` |
 | Root directory | `/` |
 | Node.js version | `18` |

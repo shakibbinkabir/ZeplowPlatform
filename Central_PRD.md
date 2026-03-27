@@ -414,7 +414,7 @@ Authentication: Filament's built-in auth (Laravel session-based). No external SS
 | Base URL | `cms.zeplow.com/storage/` |
 | Max upload size | 5 MB per file |
 | Allowed types | jpg, jpeg, png, webp, svg, gif, pdf |
-| Image conversions | Thumbnail (300x300), Medium (800x600), Large (1920x1080) — via Spatie MediaLibrary |
+| Image conversions | Thumbnail (400×300), Medium (800×600), Large (1600×1200) — via Spatie MediaLibrary |
 
 **Note:** When content syncs to the API, image URLs are sent as absolute URLs (`https://cms.zeplow.com/storage/...`). The frontend renders these directly. Images are served from the CMS server, but since `cms.zeplow.com` is proxied through Cloudflare (orange cloud), all images are cached at Cloudflare's edge CDN — providing free global CDN for media files. If storage needs grow beyond cPanel limits, migrate media to Cloudflare R2 (free tier: 10 GB storage, 10 million requests/month).
 
@@ -1201,9 +1201,9 @@ Since Next.js static export uses `unoptimized: true` (no built-in `next/image` o
 
 | Conversion | Dimensions | Use Case |
 |:---|:---|:---|
-| `thumbnail` | 300×300 | Card thumbnails, grid items, avatar-sized images |
+| `thumbnail` | 400×300 | Card thumbnails, grid items, avatar-sized images |
 | `medium` | 800×600 | List page images, blog listing cover images |
-| `large` | 1920×1080 | Hero sections, project detail hero images, full-width images |
+| `large` | 1600×1200 | Hero sections, project detail hero images, full-width images |
 
 **URL pattern for Spatie conversions:**
 ```
@@ -2796,7 +2796,7 @@ class ResyncAllAction
 | Setting | Value |
 |:---|:---|
 | Production branch | `main` |
-| Build command | `cd apps/parent && npx next build` |
+| Build command | `npx pnpm install --frozen-lockfile && npx pnpm run build:parent` |
 | Build output directory | `apps/parent/out` |
 | Root directory | `/` |
 | Node.js version | `18` |
@@ -2810,7 +2810,7 @@ class ResyncAllAction
 | Setting | Value |
 |:---|:---|
 | Production branch | `main` |
-| Build command | `cd apps/narrative && npx next build` |
+| Build command | `npx pnpm install --frozen-lockfile && npx pnpm run build:narrative` |
 | Build output directory | `apps/narrative/out` |
 | Root directory | `/` |
 | Node.js version | `18` |
@@ -2823,7 +2823,7 @@ class ResyncAllAction
 | Setting | Value |
 |:---|:---|
 | Production branch | `main` |
-| Build command | `cd apps/logic && npx next build` |
+| Build command | `npx pnpm install --frozen-lockfile && npx pnpm run build:logic` |
 | Build output directory | `apps/logic/out` |
 | Root directory | `/` |
 | Node.js version | `18` |
@@ -3574,6 +3574,7 @@ namespace App\Http\Controllers\Sites;
 use App\Http\Controllers\Controller;
 use App\Models\ContactSubmission;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 
@@ -3581,8 +3582,22 @@ class ContactController extends Controller
 {
     public function store(Request $request, string $siteKey)
     {
-        // Honeypot check — reject silently if filled
+        // Layer 1: Honeypot check — reject silently if filled
         if ($request->filled('website_url')) {
+            return response()->json([
+                'status'  => 'received',
+                'message' => 'Thank you. We\'ll be in touch within 24 hours.',
+            ]);
+        }
+
+        // Layer 2: Cloudflare Turnstile verification
+        $turnstileToken = $request->input('cf_turnstile_response');
+        if (!$turnstileToken || !$this->verifyTurnstile($turnstileToken, $request->ip())) {
+            // Return fake success to not alert bots
+            Log::info('Turnstile verification failed', [
+                'site_key' => $siteKey,
+                'ip'       => $request->ip(),
+            ]);
             return response()->json([
                 'status'  => 'received',
                 'message' => 'Thank you. We\'ll be in touch within 24 hours.',
@@ -3628,6 +3643,30 @@ class ContactController extends Controller
             'status'  => 'received',
             'message' => 'Thank you. We\'ll be in touch within 24 hours.',
         ]);
+    }
+
+    private function verifyTurnstile(string $token, string $ip): bool
+    {
+        $secret = config('services.cloudflare.turnstile_secret');
+
+        if (!$secret) {
+            // If Turnstile is not configured, skip verification (dev/staging)
+            return true;
+        }
+
+        try {
+            $response = Http::asForm()->post('https://challenges.cloudflare.com/turnstile/v0/siteverify', [
+                'secret'   => $secret,
+                'response' => $token,
+                'remoteip' => $ip,
+            ]);
+
+            return $response->json('success', false);
+        } catch (\Exception $e) {
+            Log::error('Turnstile verification request failed', ['error' => $e->getMessage()]);
+            // On network failure, allow the submission (don't block legitimate users)
+            return true;
+        }
     }
 }
 ```

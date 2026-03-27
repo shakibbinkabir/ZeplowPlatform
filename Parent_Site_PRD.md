@@ -1154,7 +1154,7 @@ Images are stored on the CMS (`cms.zeplow.com/storage/`) and served through Clou
 |:---|:---|
 | Project name | `zeplow-parent` |
 | Production branch | `main` |
-| Build command | `cd apps/parent && npx next build` |
+| Build command | `npx pnpm install --frozen-lockfile && npx pnpm run build:parent` |
 | Build output directory | `apps/parent/out` |
 | Root directory | `/` |
 | Node.js version | `18` |
@@ -1180,7 +1180,7 @@ Images are stored on the CMS (`cms.zeplow.com/storage/`) and served through Clou
 
 3. Installs dependencies: npm ci / pnpm install
 
-4. Runs: cd apps/parent && npx next build
+4. Runs: npx pnpm install --frozen-lockfile && npx pnpm run build:parent
 
 5. During next build:
    a. Root layout calls getSiteConfig('parent') → API returns nav/footer/CTA config
