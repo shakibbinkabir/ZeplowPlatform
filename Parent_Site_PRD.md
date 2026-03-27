@@ -1,8 +1,8 @@
 # ZEPLOW PARENT SITE (zeplow.com) — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** March 27, 2026
-**Derived From:** Zeplow Platform Central PRD v1.1, Company Profile, Brand Documents
+**Derived From:** Zeplow Platform Central PRD v1.2, Company Profile, Brand Documents
 **Original Author:** Shakib Bin Kabir
 **Status:** Final — Ready for Implementation
 
@@ -32,6 +32,7 @@
 20. Implementation Order
 21. Testing Checklist
 22. Post-Launch Checklist
+23. Known Limitations
 
 ---
 
@@ -950,6 +951,57 @@ The parent site primarily uses these blocks:
 
 Block component visual design is handled in **Phase 6** (frontend design phase). During the data layer phase (Phase 4), block components are implemented as structural stubs that render the correct data in basic HTML. Visual styling, animations (Framer Motion), and responsive design are layered on afterward.
 
+### 9.4 Responsive Image Strategy
+
+Since the Next.js static export uses `unoptimized: true` (no built-in image optimization server), the site must explicitly use the correct Spatie MediaLibrary conversion for each rendering context. The API returns base image URLs; the frontend is responsible for selecting the appropriate conversion size.
+
+**Conversion Selection by Context:**
+
+| Context | Conversion | Resolution | Example Usage |
+|:---|:---|:---|:---|
+| Hero images and full-width backgrounds | `large` | 1920×1080 | `HeroBlock`, page-level hero banners |
+| Project cards on homepage and grid views | `medium` | 800×600 | `ProjectCard`, venture cards, portfolio grids |
+| Thumbnail previews | `thumbnail` | 300×300 | `BlogCard` cover images, small team photos |
+
+**API Client Image Helper:**
+
+The shared `@zeplow/api` package should expose a helper that constructs the correct conversion URL:
+
+```typescript
+// packages/api/src/images.ts
+
+/**
+ * Returns the URL for a specific Spatie MediaLibrary conversion.
+ * Replaces the filename in the base URL with conversions/{original-filename}-{conversion}.{ext}
+ *
+ * Example:
+ *   getImageUrl('https://cms.zeplow.com/storage/media/1/hero.jpg', 'medium')
+ *   → 'https://cms.zeplow.com/storage/media/1/conversions/hero-medium.jpg'
+ */
+export function getImageUrl(baseUrl: string, conversion: 'large' | 'medium' | 'thumbnail'): string {
+  const url = new URL(baseUrl);
+  const pathParts = url.pathname.split('/');
+  const filename = pathParts.pop()!;
+  const [name, ext] = [filename.substring(0, filename.lastIndexOf('.')), filename.substring(filename.lastIndexOf('.'))];
+  pathParts.push('conversions', `${name}-${conversion}${ext}`);
+  url.pathname = pathParts.join('/');
+  return url.toString();
+}
+```
+
+**Image Tag Requirements:**
+
+All `<img>` tags must include the following attributes:
+
+| Attribute | Requirement |
+|:---|:---|
+| `width` | Explicit width matching the conversion dimensions |
+| `height` | Explicit height matching the conversion dimensions |
+| `alt` | Descriptive alt text (from API data) |
+| `loading` | `"lazy"` for below-the-fold images; `"eager"` or omitted for above-the-fold hero images |
+
+Above-the-fold hero images should use `loading="eager"` (or omit the attribute) and may include a `fetchpriority="high"` attribute to prioritize loading. All other images must use `loading="lazy"`.
+
 ---
 
 ## 10. CONTACT FORM
@@ -1291,6 +1343,7 @@ apps/parent/
 ├── app/
 │   ├── globals.css                    # Tailwind imports + global styles
 │   ├── layout.tsx                     # Root layout (fonts, nav, footer from API config)
+│   ├── not-found.tsx                  # Custom 404 page (branded "Page not found")
 │   ├── page.tsx                       # Home page (/)
 │   ├── about/
 │   │   └── page.tsx                   # About page (/about)
@@ -1321,6 +1374,7 @@ apps/parent/
 │   │   ├── Manrope-SemiBold.woff2
 │   │   └── Manrope-Bold.woff2
 │   ├── robots.txt
+│   ├── 404.html                       # Static 404 fallback for Cloudflare Pages
 │   ├── _headers                       # Security headers for Cloudflare
 │   ├── favicon.ico
 │   ├── logo.png                       # Zeplow logo (for JSON-LD schema)
@@ -1345,7 +1399,44 @@ apps/parent/
 | API returns 500 | Build fails. Previous version stays live. |
 | Blog slug doesn't exist | `generateStaticParams` won't include it. No crash. |
 
-### 19.2 Runtime Errors (Browser)
+### 19.2 Custom Error Pages
+
+| Page | File | Behavior |
+|:---|:---|:---|
+| 404 (Not Found) | `apps/parent/app/not-found.tsx` | Branded "Page not found" message with navigation back to the home page. Uses the site config for consistent navigation and footer (fetched at build time via `getSiteConfig('parent')`). |
+| 404 static fallback | `apps/parent/public/404.html` | A static HTML fallback that Cloudflare Pages will serve for unknown routes not handled by the App Router. Should match the branded 404 styling. |
+
+**Implementation:**
+
+```typescript
+// apps/parent/app/not-found.tsx
+
+import { getSiteConfig } from '@zeplow/api';
+import { Container, Button } from '@zeplow/ui';
+import type { Metadata } from 'next';
+
+const SITE_KEY = 'parent';
+
+export const metadata: Metadata = {
+  title: 'Page Not Found — Zeplow',
+};
+
+export default async function NotFound() {
+  return (
+    <main>
+      <Container>
+        <h1>Page not found</h1>
+        <p>The page you're looking for doesn't exist or has been moved.</p>
+        <Button href="/">Back to Home</Button>
+      </Container>
+    </main>
+  );
+}
+```
+
+For the static export, also generate a `404.html` in `apps/parent/public/` that mirrors this design. Cloudflare Pages automatically serves `404.html` for any route that doesn't match a static file.
+
+### 19.3 Runtime Errors (Browser)
 
 | Scenario | Behavior |
 |:---|:---|
@@ -1460,6 +1551,7 @@ apps/parent/
 | `/insights/{slug}` loads | Shows full blog post with body HTML | ☐ |
 | `/careers` loads | Shows placeholder content | ☐ |
 | `/contact` loads | Shows content + contact form | ☐ |
+| Visit `www.zeplow.com` | 301 redirect to `zeplow.com` (apex domain) | ☐ |
 
 ### 21.3 SEO Tests
 
@@ -1470,6 +1562,7 @@ apps/parent/
 | Blog post has ArticleSchema JSON-LD | Valid JSON-LD with headline, author, date | ☐ |
 | `/sitemap.xml` accessible | Valid XML with all page + blog URLs | ☐ |
 | `/robots.txt` accessible | Correct content with sitemap URL | ☐ |
+| Validate JSON-LD using Google's Rich Results Test tool or Schema.org validator | No errors or warnings for OrganizationSchema (home) and ArticleSchema (blog posts) | ☐ |
 
 ### 21.4 Contact Form Tests
 
@@ -1489,6 +1582,7 @@ apps/parent/
 | Total JS < 100 KB | Minimal client-side JS (only ContactForm) | ☐ |
 | Images served from Cloudflare CDN | Check `cf-cache-status` header on cms.zeplow.com images | ☐ |
 | HTTPS enforced | HTTP redirects to HTTPS | ☐ |
+| Block font files in DevTools Network tab | Fallback fonts (Georgia for headings, system-ui for body) render correctly and layout doesn't break | ☐ |
 
 ### 21.6 Cross-Site Link Tests
 
@@ -1526,6 +1620,19 @@ apps/parent/
 | 10 | Monitor Cloudflare build times for first week | Week 1 |
 | 11 | Check that content changes from CMS appear within 2 minutes | Day 2 |
 | 12 | Test blog post creation end-to-end (CMS → API → build → live) | Day 2 |
+
+---
+
+## 23. KNOWN LIMITATIONS
+
+The following limitations are accepted for V1 and may be addressed in future iterations:
+
+| # | Limitation | Impact | Mitigation |
+|:---|:---|:---|:---|
+| 1 | No content versioning | If incorrect content is published, there is no built-in way to revert to a previous version | Manually edit and correct content in the CMS; Cloudflare Pages rollback can restore the last successful build |
+| 2 | No offline/service worker support | Site requires an internet connection to load; no offline caching of pages | Acceptable for a corporate site — users are expected to have connectivity |
+| 3 | No A/B testing capability | Cannot run split tests on page variants, CTAs, or content blocks | Future enhancement if conversion optimization becomes a priority |
+| 4 | Images are not optimized by Next.js | Static export requires `unoptimized: true`, so Next.js `<Image>` optimization (resizing, format conversion, quality adjustment) is unavailable at build time | Relies on Spatie MediaLibrary conversions (large/medium/thumbnail) generated at upload time, and Cloudflare CDN caching for delivery performance (see Section 9.4) |
 
 ---
 
