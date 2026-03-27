@@ -1,6 +1,6 @@
 # ZEPLOW LOGIC SITE (logic.zeplow.com) — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.1
+**Version:** 1.2
 **Date:** March 27, 2026
 **Derived From:** Zeplow Platform Central PRD v1.1, Tech Business Brand Document, Company Profile
 **Original Author:** Shakib Bin Kabir
@@ -96,7 +96,7 @@ From the brand document — the **Ideal Customer Profile**:
 
 - **No content versioning** — The CMS does not support content versioning in V1. Rollback requires manual CMS intervention (restore from database backup or re-enter content).
 - **No offline/service worker support** — No Progressive Web App (PWA) capabilities in V1. The site requires an active internet connection.
-- **Image optimization relies on Spatie conversions + Cloudflare CDN** — There is no build-time or edge-side image processing. All optimization happens via pre-generated Spatie MediaLibrary conversions cached by Cloudflare's CDN.
+- **Image optimization uses a 4-stage pipeline instead of Next.js Image component** — There is no build-time or edge-side image processing. Optimization is handled by: (1) upload validation in CMS, (2) Spatie MediaLibrary size conversions, (3) Cloudflare CDN/Polish for format conversion, and (4) responsive `<picture>` rendering with `srcSet` and lazy loading in the frontend. See Central PRD Section 5 for the complete pipeline.
 - **Project volume and pagination** — The Logic site launches with 17 projects (more than Narrative or Parent). The `/work` grid handles this without pagination at launch, but when project count exceeds 12, ensure the grid renders performantly. A "Load More" pattern should be implemented when project count exceeds 24.
 
 ---
@@ -1058,6 +1058,8 @@ NEXT_PUBLIC_SITE_KEY=logic
 | `NEXT_PUBLIC_API_URL` | `https://api.zeplow.com` |
 | `NEXT_PUBLIC_SITE_KEY` | `logic` |
 | `NODE_VERSION` | `18` |
+| `CF_BUILD_TOKEN` | Build agent token for API rate limit exemption. Must match the unhashed value stored in the API. Set in Cloudflare Pages environment variables (not in `.env.local` for local dev — local dev uses the default 60/min public limit, which is sufficient for single-site dev). |
+| `NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (client-side, safe to expose). |
 
 ---
 
@@ -1276,6 +1278,9 @@ Create a `404.html` fallback for Cloudflare Pages. This is a static HTML file (n
 | Email notification subject includes "logic" | "New Lead — logic" | ☐ |
 | Honeypot filled | Fake success, nothing stored | ☐ |
 | Missing required fields | Validation error shown | ☐ |
+| Turnstile widget renders on contact page | Cloudflare challenge visible below form fields | ☐ |
+| Complete Turnstile challenge, submit form | Form submits successfully | ☐ |
+| Turnstile site key missing (local dev without key) | Form renders without Turnstile widget, still submits | ☐ |
 
 ### 21.6 Cross-Site Link Tests
 

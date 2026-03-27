@@ -1,6 +1,6 @@
 # ZEPLOW PLATFORM — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** March 27, 2026
 **Author:** Shakib Bin Kabir
 **Status:** Final — Ready for Implementation (Architect Review Applied)
@@ -277,6 +277,8 @@ Each page's `content` field is a Filament Repeater with a Block type selector. E
 
 **Table Columns:** title, site.name, template, is_published, sort_order, updated_at
 **Table Filters:** site_id, is_published, template
+
+> **Note:** See CMS PRD Section 7.4 for complete block-level validation rules. All required fields are enforced in the Filament Repeater to prevent malformed JSON from reaching the API.
 
 #### 3.4.3 ProjectResource
 
@@ -1247,10 +1249,100 @@ export function getImageUrl(
 - **Hero sections and detail pages**: Use `large` conversion
 - **Fallback**: If a conversion URL 404s (e.g., conversion failed), fall back to the original URL
 
+#### Image Optimization Strategy — Complete Pipeline
+
+Images flow through 4 optimization stages:
+
+**Stage 1: Upload Validation (CMS)**
+- Max file size: 5 MB per image
+- Accepted formats: JPEG, PNG, WebP
+- Enforced by Filament's SpatieMediaLibraryFileUpload validation rules
+
+**Stage 2: Spatie MediaLibrary Conversions (CMS, at upload time)**
+- `thumbnail`: 400x300, crop-fit, quality 80
+- `medium`: 800x600, fit-contain, quality 85
+- `large`: 1600x1200, fit-contain, quality 90
+- Format: Same as original (JPEG->JPEG, PNG->PNG, WebP->WebP)
+- All conversions are non-queued (generated immediately on upload)
+
+**Stage 3: Cloudflare Polish (CDN, at delivery time)**
+- Enable Cloudflare Polish on the `cms.zeplow.com` zone (Pro plan feature -- if using free plan, skip this stage and rely on Stages 2 and 4)
+- Polish mode: "Lossy" -- automatically converts images to WebP when the browser supports it (via `Accept: image/webp` header)
+- This provides format conversion (WebP) without any build-time processing
+
+**Stage 3 (Alternative for Free Plan): Manual WebP Conversion**
+- If Cloudflare Polish is unavailable (free plan), add WebP as an additional Spatie conversion:
+  ```php
+  $this->addMediaConversion('large-webp')
+      ->width(1600)->height(1200)
+      ->format('webp')
+      ->quality(85)
+      ->nonQueued();
+  ```
+- The Observer payload should include both original and WebP URLs
+- The frontend renders a `<picture>` element with WebP source and JPEG/PNG fallback
+
+**Stage 4: Responsive Image Rendering (Frontend)**
+- All image rendering components must use the `<picture>` element with `srcSet` and `sizes` attributes
+- Use the Spatie conversion URLs to provide responsive sources
+
+Create a shared image component in `packages/ui/src/ResponsiveImage.tsx`:
+
+```typescript name=packages/ui/src/ResponsiveImage.tsx
+interface ResponsiveImageProps {
+  images: {
+    thumbnail?: string;
+    medium?: string;
+    large?: string;
+    original: string;
+  };
+  alt: string;
+  className?: string;
+  priority?: boolean;
+  sizes?: string;
+}
+
+export function ResponsiveImage({ images, alt, className, priority, sizes }: ResponsiveImageProps) {
+  const srcSet = [
+    images.thumbnail && `${images.thumbnail} 400w`,
+    images.medium && `${images.medium} 800w`,
+    images.large && `${images.large} 1600w`,
+  ].filter(Boolean).join(', ');
+
+  return (
+    <img
+      src={images.large || images.original}
+      srcSet={srcSet || undefined}
+      sizes={sizes || '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw'}
+      alt={alt}
+      className={className}
+      loading={priority ? 'eager' : 'lazy'}
+      decoding={priority ? 'sync' : 'async'}
+    />
+  );
+}
+```
+
 ### 5.5 Shared API Client
 
 ```typescript name=packages/api/src/types.ts
 // All TypeScript interfaces for API responses
+
+export interface ProjectImage {
+  original: string;
+  large: string;
+  medium: string;
+  thumbnail: string;
+  large_webp: string | null;
+  alt: string;
+}
+
+export interface MediaImage {
+  original: string;
+  large: string;
+  medium: string;
+  thumbnail: string;
+}
 
 export interface SiteConfig {
   site_key: string;
@@ -1317,7 +1409,7 @@ export interface ProjectListItem {
   client_name: string | null;
   industry: string | null;
   url: string | null;
-  images: string[];
+  images: ProjectImage[];
   tags: string[];
   featured: boolean;
   sort_order: number;
@@ -1336,7 +1428,7 @@ export interface BlogPostListItem {
   slug: string;
   title: string;
   excerpt: string | null;
-  cover_image: string | null;
+  cover_image: MediaImage | null;
   tags: string[];
   author: string | null;
   published_at: string;
@@ -1353,7 +1445,7 @@ export interface Testimonial {
   role: string | null;
   company: string | null;
   quote: string;
-  avatar: string | null;
+  avatar: MediaImage | null;
   sort_order: number;
 }
 
@@ -1362,7 +1454,7 @@ export interface TeamMember {
   name: string;
   role: string;
   bio: string | null;
-  photo: string | null;
+  photo: MediaImage | null;
   linkedin: string | null;
   email: string | null;
   is_founder: boolean;
@@ -1513,6 +1605,35 @@ interface ContentRendererProps {
   siteKey: 'parent' | 'narrative' | 'logic';
 }
 
+// Defensive block validation — skip blocks with missing required fields.
+// This prevents rendering errors if malformed JSON reaches the frontend.
+// The ContentRenderer should use this function to filter out invalid blocks
+// before rendering (e.g., blocks.filter(isValidBlock).map(...)).
+function isValidBlock(block: ContentBlock): boolean {
+  switch (block.type) {
+    case 'hero':
+      return !!block.data?.heading;
+    case 'text':
+      return !!block.data?.body;
+    case 'cards':
+      return Array.isArray(block.data?.cards) && block.data.cards.length > 0;
+    case 'cta':
+      return !!block.data?.heading && !!block.data?.button_text && !!block.data?.button_url;
+    case 'image':
+      return !!block.data?.image && !!block.data?.alt_text;
+    case 'gallery':
+      return Array.isArray(block.data?.images) && block.data.images.length > 0;
+    case 'stats':
+      return Array.isArray(block.data?.stats) && block.data.stats.length > 0;
+    case 'divider':
+      return !!block.data?.style;
+    case 'raw_html':
+      return !!block.data?.html;
+    default:
+      return true; // testimonials, team, projects — always valid (they fetch their own data)
+  }
+}
+
 // This component receives the content blocks array from the API
 // and renders the appropriate component for each block type.
 // The actual visual implementation of each block component
@@ -1535,11 +1656,12 @@ interface ContentRendererProps {
 //   'raw_html'     → <RawHTMLBlock data={block.data} />
 //
 // Unknown block types are skipped with a console.warn in development.
+// Invalid blocks (missing required fields) are skipped via isValidBlock().
 
 export function ContentRenderer({ blocks, siteKey }: ContentRendererProps) {
   return (
     <>
-      {blocks.map((block, index) => {
+      {blocks.filter(isValidBlock).map((block, index) => {
         const BlockComponent = blockComponents[block.type];
         if (!BlockComponent) {
           if (process.env.NODE_ENV === 'development') {
@@ -1678,14 +1800,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
 ### 5.10 Contact Form Handling
 
-The contact form on each site submits to the API with honeypot spam protection:
+The contact form on each site submits to the API with honeypot spam protection and Cloudflare Turnstile bot verification:
+
+**Turnstile Integration Notes:**
+- Turnstile site key is loaded from `NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY` environment variable
+- The Turnstile widget script is loaded dynamically via a `<script>` tag
+- The Turnstile token is captured in component state and included in the form submission body as `cf_turnstile_response`
+- After successful submission, the Turnstile widget is reset so a new token can be generated
+- Server-side verification happens in the API's `ContactController` using `CF_TURNSTILE_SECRET_KEY`
 
 ```typescript name=packages/ui/src/ContactForm.tsx
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.zeplow.com';
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY || '';
 
 interface ContactFormProps {
   siteKey: string;
@@ -1695,6 +1825,33 @@ interface ContactFormProps {
 export function ContactForm({ siteKey, siteDomain }: ContactFormProps) {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const turnstileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Load Turnstile script
+    if (!document.getElementById('cf-turnstile-script')) {
+      const script = document.createElement('script');
+      script.id = 'cf-turnstile-script';
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+
+    // Render Turnstile widget once script is loaded
+    const interval = setInterval(() => {
+      if (window.turnstile && turnstileRef.current && !turnstileRef.current.hasChildNodes()) {
+        window.turnstile.render(turnstileRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: (token: string) => setTurnstileToken(token),
+        });
+        clearInterval(interval);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1722,12 +1879,18 @@ export function ContactForm({ siteKey, siteDomain }: ContactFormProps) {
           message: formData.get('message'),
           budget_range: formData.get('budget_range'),
           source: siteDomain,
+          cf_turnstile_response: turnstileToken,
         }),
       });
 
       if (res.ok) {
         setStatus('success');
         form.reset();
+        // Reset Turnstile widget for next submission
+        if (window.turnstile && turnstileRef.current) {
+          window.turnstile.reset(turnstileRef.current);
+          setTurnstileToken('');
+        }
       } else {
         const data = await res.json();
         setErrorMessage(data.error || 'Something went wrong.');
@@ -1759,6 +1922,10 @@ export function ContactForm({ siteKey, siteDomain }: ContactFormProps) {
         <option value="$5,000 - $10,000">$5,000 - $10,000</option>
         <option value="$10,000+">$10,000+</option>
       </select>
+
+      {/* Cloudflare Turnstile widget */}
+      <div ref={turnstileRef} />
+
       <button type="submit" disabled={status === 'loading'}>
         {status === 'loading' ? 'Sending...' : 'Send Message'}
       </button>
@@ -2056,7 +2223,7 @@ CREATE TABLE deploy_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     site_key VARCHAR(50) NOT NULL,
     trigger_source VARCHAR(50) NOT NULL,
-    status ENUM('triggered', 'success', 'failed') NOT NULL DEFAULT 'triggered',
+    status ENUM('triggered', 'success', 'failed', 'debounced') NOT NULL DEFAULT 'triggered',
     response_code INT NULL,
     response_body TEXT NULL,
     last_error TEXT NULL,
@@ -2075,7 +2242,7 @@ CREATE TABLE api_keys (
     name VARCHAR(255) NOT NULL,
     key_hash VARCHAR(64) NOT NULL UNIQUE COMMENT 'SHA-256 hash of the API key',
     key_prefix VARCHAR(8) NOT NULL COMMENT 'First 8 chars of the key for identification (e.g., "zplw_a1b...")',
-    scope VARCHAR(50) NOT NULL DEFAULT 'internal',
+    scope ENUM('internal', 'build') NOT NULL DEFAULT 'internal',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     last_used_at TIMESTAMP NULL,
     created_at TIMESTAMP NULL,
@@ -2083,6 +2250,7 @@ CREATE TABLE api_keys (
 
     INDEX idx_key_hash_active (key_hash, is_active)
 );
+-- Note: ValidateApiKey middleware only accepts 'internal' scope. ResolveBuildAgent middleware only accepts 'build' scope.
 
 -- Future tables (structure reserved, not created now):
 -- erp_*
@@ -2420,6 +2588,13 @@ class PageObserver
                 ],
                 publishedAt: $page->published_at?->toISOString(),
             );
+        } elseif ($page->isDirty('is_published') && !$page->is_published) {
+            // Just unpublished — remove from API
+            $this->syncService->deleteContent(
+                siteKey: $page->site->key,
+                contentType: 'page',
+                slug: $page->slug,
+            );
         }
     }
 
@@ -2470,6 +2645,13 @@ class ProjectObserver
                 ],
                 publishedAt: now()->toISOString(),
             );
+        } elseif ($project->isDirty('is_published') && !$project->is_published) {
+            // Just unpublished — remove from API
+            $this->syncService->deleteContent(
+                siteKey: $project->site->key,
+                contentType: 'project',
+                slug: $project->slug,
+            );
         }
     }
 
@@ -2485,8 +2667,8 @@ class ProjectObserver
 ```
 
 **The same Observer pattern applies to:**
-- `BlogPostObserver` (type: `blog_post`) — syncs only when `is_published` is true
-- `TestimonialObserver` (type: `testimonial`) — syncs only when `is_published` is true
+- `BlogPostObserver` (type: `blog_post`) — syncs only when `is_published` is true. When `is_published` is toggled to false (`isDirty('is_published') && !$blogPost->is_published`), the observer calls `deleteContent` to remove the blog post from the API.
+- `TestimonialObserver` (type: `testimonial`) — syncs only when `is_published` is true. When `is_published` is toggled to false (`isDirty('is_published') && !$testimonial->is_published`), the observer calls `deleteContent` to remove the testimonial from the API.
 - `TeamMemberObserver` (type: `team_member`) — syncs only when `is_published` is true (consistent with all other content types). When `is_published` is toggled to false, the observer calls `deleteContent` to remove the team member from the API.
 - `SiteConfigObserver` (calls `syncConfig` instead of `syncContent`)
 
@@ -3847,6 +4029,9 @@ MAIL_PASSWORD=...
 MAIL_ENCRYPTION=ssl
 MAIL_FROM_ADDRESS=hello@zeplow.com
 MAIL_FROM_NAME="Zeplow"
+
+CF_BUILD_TOKEN=... (shared secret for build agent rate limit exemption)
+CF_TURNSTILE_SECRET_KEY=... (Cloudflare Turnstile secret key, server-side)
 ```
 
 ### 15.3 Frontend (Cloudflare Pages Environment Variables)
@@ -3855,6 +4040,8 @@ MAIL_FROM_NAME="Zeplow"
 |:---|:---|:---|
 | `NEXT_PUBLIC_API_URL` | `https://api.zeplow.com` | All 3 sites |
 | `NEXT_PUBLIC_SITE_KEY` | `parent` / `narrative` / `logic` | Site-specific |
+| `CF_BUILD_TOKEN` | `... (build agent token)` | Build scripts (rate limit exemption) |
+| `NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY` | `... (Cloudflare Turnstile site key)` | Contact form (client-side) |
 | `NODE_VERSION` | `18` | Build environment |
 
 ---
@@ -3866,6 +4053,7 @@ MAIL_FROM_NAME="Zeplow"
 | **Cloudflare** | DNS, CDN, Pages hosting, image caching for CMS/API | Free | $0 |
 | **GitHub** | Code repository (monorepo) | Free (private repo) | $0 |
 | **cPanel Hosting** | Laravel CMS + API hosting | Existing plan | $0 (already paid) |
+| **Cloudflare Turnstile** | Contact form bot protection | Free | Same Cloudflare account |
 
 **Total monthly cost: $0**
 
@@ -3949,6 +4137,9 @@ MAIL_FROM_NAME="Zeplow"
 | 3.27 | Get Cloudflare deploy hook URLs | From Cloudflare Pages dashboard | 1.10 |
 | 3.28 | Add deploy hook URLs to API .env | CF_DEPLOY_HOOK_PARENT, etc. | 3.27 |
 | 3.29 | Test: Content sync → deploy hook fires → Cloudflare rebuilds | Full pipeline test | 3.25, 3.28 |
+| 3.30 | Create ResolveBuildAgent middleware | Validates `CF_BUILD_TOKEN`, applies elevated rate limit tier | 3.2 |
+| 3.31 | Add build token rate limit tier | 300 req/min for build agents vs 60 req/min for public | 3.21, 3.30 |
+| 3.32 | Add Turnstile verification to ContactController | Server-side `cf_turnstile_response` validation via Cloudflare API | 3.17 |
 
 ### Phase 4: Frontend Data Layer (Days 13–15)
 
@@ -4002,6 +4193,8 @@ MAIL_FROM_NAME="Zeplow"
 | 6.9 | Lighthouse audit | Target 95+ on all pages |
 | 6.10 | Cross-browser testing | Chrome, Firefox, Safari, mobile |
 | 6.11 | Final QA | All links, all forms, all images |
+| 6.12 | Create `scripts/test-api.sh` automated test script | Automated curl-based API endpoint verification |
+| 6.13 | Run automated tests against production | Execute `scripts/test-api.sh` and verify all endpoints pass |
 
 ---
 
@@ -4023,6 +4216,9 @@ MAIL_FROM_NAME="Zeplow"
 | API is down during publish | Sync job fails after 3 retries, sync_logs shows "failed" (single sync_log entry, not one per retry) | ☐ |
 | Unpublish a team member | Observer triggers deleteContent, team member removed from API | ☐ |
 | Resync All only syncs published team members | Unpublished team members are not sent to API | ☐ |
+| Unpublish a published page | Observer triggers deleteContent, page removed from API | ☐ |
+| Unpublish a published project | Observer triggers deleteContent, project removed from API | ☐ |
+| Unpublish a published blog post | Observer triggers deleteContent, blog post removed from API | ☐ |
 
 ### 18.2 API Testing
 
@@ -4048,6 +4244,8 @@ MAIL_FROM_NAME="Zeplow"
 | Sync blog_post content type → check cache key | Cache key uses "blog" prefix, not "blog_posts" | ☐ |
 | Sync project → verify parameterized list caches are cleared | Cache keys like `list:true:3:1:50` must be flushed, not just the base `list` key | ☐ |
 | Verify API key is stored as SHA-256 hash in api_keys table | `key_hash` column contains a 64-char hex string, no plaintext key column exists | ☐ |
+| Request with valid build token at 60-300 req/min | No 429 | ☐ |
+| Contact form without Turnstile token | Fake 200, nothing stored | ☐ |
 
 ### 18.3 Frontend Testing
 
@@ -4081,6 +4279,7 @@ MAIL_FROM_NAME="Zeplow"
 | Change navigation in Site Config | Nav updates on live site after rebuild | ☐ |
 | CMS server goes down | Live sites continue working (static files on CDN) | ☐ |
 | API server goes down | Live sites continue working (already built). New builds fail gracefully. | ☐ |
+| Sync 2 items for same site within 10 seconds | Only 1 deploy hook fires | ☐ |
 
 ---
 
@@ -4106,6 +4305,8 @@ MAIL_FROM_NAME="Zeplow"
 | 16 | Add Cloudflare Cache Rule for `cms.zeplow.com/storage/*` with 30-day TTL | Day 1 |
 | 17 | Set up UptimeRobot health check monitor (see Section 11.6) | Day 1 |
 | 18 | Set up weekly monitoring cron jobs (see Section 11.6) | Day 1 |
+| 19 | Create Cloudflare Turnstile widget, add keys to env | Day 1 |
+| 20 | Run `scripts/test-api.sh` against production | Day 1, then after every deployment |
 
 ### 19.1 Database Backup Strategy
 

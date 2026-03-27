@@ -1,6 +1,6 @@
 # ZEPLOW API — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** March 27, 2026
 **Derived From:** Zeplow Platform Central PRD v1.1 (March 11, 2026)
 **Original Author:** Shakib Bin Kabir
@@ -433,7 +433,7 @@ CREATE TABLE deploy_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     site_key VARCHAR(50) NOT NULL,              -- Which site was deployed
     trigger_source VARCHAR(50) NOT NULL,        -- "content_sync", "content_delete", "config_sync", "manual"
-    status ENUM('triggered', 'success', 'failed') NOT NULL DEFAULT 'triggered',
+    status ENUM('triggered', 'success', 'failed', 'debounced') NOT NULL DEFAULT 'triggered',
     response_code INT NULL,                     -- HTTP status from Cloudflare
     response_body TEXT NULL,                    -- First 500 chars of Cloudflare response
     last_error TEXT NULL,                       -- Error message if failed
@@ -453,7 +453,7 @@ CREATE TABLE api_keys (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,                 -- Human-readable label: "CMS Sync Key"
     `key` VARCHAR(64) NOT NULL UNIQUE,          -- SHA-256 hash of the API key (plaintext shown once at generation)
-    scope VARCHAR(50) NOT NULL DEFAULT 'internal',  -- "internal" for CMS→API sync
+    scope ENUM('internal', 'build') NOT NULL DEFAULT 'internal',  -- "internal" for CMS→API sync. ValidateApiKey middleware only accepts 'internal' scope. ResolveBuildAgent middleware only accepts 'build' scope.
     is_active BOOLEAN NOT NULL DEFAULT TRUE,    -- Can be deactivated without deletion
     last_used_at TIMESTAMP NULL,                -- Updated on every authenticated request
     created_at TIMESTAMP NULL,
@@ -1271,8 +1271,14 @@ class SitePageController extends Controller
     "industry": "EdTech",
     "url": "https://tututor.ai",
     "images": [
-      "https://cms.zeplow.com/storage/projects/tututor-1.jpg",
-      "https://cms.zeplow.com/storage/projects/tututor-2.jpg"
+      {
+        "original": "https://cms.zeplow.com/storage/projects/tututor-1.jpg",
+        "large": "https://cms.zeplow.com/storage/projects/tututor-1-large.jpg",
+        "medium": "https://cms.zeplow.com/storage/projects/tututor-1-medium.jpg",
+        "thumbnail": "https://cms.zeplow.com/storage/projects/tututor-1-thumbnail.jpg",
+        "large_webp": "https://cms.zeplow.com/storage/projects/tututor-1-large-webp.webp",
+        "alt": "Tututor.ai dashboard screenshot"
+      }
     ],
     "tags": ["web-app", "ai", "saas"],
     "featured": true,
@@ -1294,7 +1300,16 @@ class SitePageController extends Controller
       "client_name": "Tututor",
       "industry": "EdTech",
       "url": "https://tututor.ai",
-      "images": ["..."],
+      "images": [
+        {
+          "original": "https://cms.zeplow.com/storage/projects/tututor-1.jpg",
+          "large": "https://cms.zeplow.com/storage/projects/tututor-1-large.jpg",
+          "medium": "https://cms.zeplow.com/storage/projects/tututor-1-medium.jpg",
+          "thumbnail": "https://cms.zeplow.com/storage/projects/tututor-1-thumbnail.jpg",
+          "large_webp": "https://cms.zeplow.com/storage/projects/tututor-1-large-webp.webp",
+          "alt": "Tututor.ai dashboard screenshot"
+        }
+      ],
       "tags": ["web-app", "ai", "saas"],
       "featured": true,
       "sort_order": 0
@@ -1331,9 +1346,30 @@ Returns full project detail including challenge/solution/outcome and tech_stack.
   "outcome": "10x student engagement, 60% reduction in tutor workload",
   "tech_stack": ["Next.js", "Python", "PostgreSQL", "OpenAI"],
   "images": [
-    "https://cms.zeplow.com/storage/projects/tututor-1.jpg",
-    "https://cms.zeplow.com/storage/projects/tututor-2.jpg",
-    "https://cms.zeplow.com/storage/projects/tututor-3.jpg"
+    {
+      "original": "https://cms.zeplow.com/storage/projects/tututor-1.jpg",
+      "large": "https://cms.zeplow.com/storage/projects/tututor-1-large.jpg",
+      "medium": "https://cms.zeplow.com/storage/projects/tututor-1-medium.jpg",
+      "thumbnail": "https://cms.zeplow.com/storage/projects/tututor-1-thumbnail.jpg",
+      "large_webp": "https://cms.zeplow.com/storage/projects/tututor-1-large-webp.webp",
+      "alt": "Tututor.ai dashboard screenshot"
+    },
+    {
+      "original": "https://cms.zeplow.com/storage/projects/tututor-2.jpg",
+      "large": "https://cms.zeplow.com/storage/projects/tututor-2-large.jpg",
+      "medium": "https://cms.zeplow.com/storage/projects/tututor-2-medium.jpg",
+      "thumbnail": "https://cms.zeplow.com/storage/projects/tututor-2-thumbnail.jpg",
+      "large_webp": "https://cms.zeplow.com/storage/projects/tututor-2-large-webp.webp",
+      "alt": "Tututor.ai learning interface"
+    },
+    {
+      "original": "https://cms.zeplow.com/storage/projects/tututor-3.jpg",
+      "large": "https://cms.zeplow.com/storage/projects/tututor-3-large.jpg",
+      "medium": "https://cms.zeplow.com/storage/projects/tututor-3-medium.jpg",
+      "thumbnail": "https://cms.zeplow.com/storage/projects/tututor-3-thumbnail.jpg",
+      "large_webp": "https://cms.zeplow.com/storage/projects/tututor-3-large-webp.webp",
+      "alt": "Tututor.ai analytics view"
+    }
   ],
   "tags": ["web-app", "ai", "saas"],
   "featured": true,
@@ -1828,11 +1864,12 @@ class SiteTeamController extends Controller
 
 **Behavior:**
 1. Check honeypot → if filled, return fake 200
-2. Validate input → return 422 on failure
-3. Store in `contact_submissions` table
-4. Send email notification to `hello@zeplow.com` via SMTP
-5. If email fails, log error but still return 200 (submission is stored — email is secondary)
-6. Return success response
+2. Verify Cloudflare Turnstile token → if missing/invalid, return fake 200 (don't alert bots)
+3. Validate input → return 422 on failure
+4. Store in `contact_submissions` table
+5. Send email notification to `hello@zeplow.com` via SMTP
+6. If email fails, log error but still return 200 (submission is stored — email is secondary)
+7. Return success response
 
 **Implementation:**
 
@@ -1844,6 +1881,7 @@ namespace App\Http\Controllers\Sites;
 use App\Http\Controllers\Controller;
 use App\Models\ContactSubmission;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 
@@ -1851,8 +1889,22 @@ class ContactController extends Controller
 {
     public function store(Request $request, string $siteKey)
     {
-        // Honeypot check — reject silently if filled
+        // Layer 1: Honeypot check — reject silently if filled
         if ($request->filled('fax_number')) {
+            return response()->json([
+                'status'  => 'received',
+                'message' => 'Thank you. We\'ll be in touch within 24 hours.',
+            ]);
+        }
+
+        // Layer 2: Cloudflare Turnstile verification
+        $turnstileToken = $request->input('cf_turnstile_response');
+        if (!$turnstileToken || !$this->verifyTurnstile($turnstileToken, $request->ip())) {
+            // Return fake success to not alert bots
+            Log::info('Turnstile verification failed', [
+                'site_key' => $siteKey,
+                'ip'       => $request->ip(),
+            ]);
             return response()->json([
                 'status'  => 'received',
                 'message' => 'Thank you. We\'ll be in touch within 24 hours.',
@@ -1898,6 +1950,30 @@ class ContactController extends Controller
             'status'  => 'received',
             'message' => 'Thank you. We\'ll be in touch within 24 hours.',
         ]);
+    }
+
+    private function verifyTurnstile(string $token, string $ip): bool
+    {
+        $secret = config('services.cloudflare.turnstile_secret');
+
+        if (!$secret) {
+            // If Turnstile is not configured, skip verification (dev/staging)
+            return true;
+        }
+
+        try {
+            $response = Http::asForm()->post('https://challenges.cloudflare.com/turnstile/v0/siteverify', [
+                'secret'   => $secret,
+                'response' => $token,
+                'remoteip' => $ip,
+            ]);
+
+            return $response->json('success', false);
+        } catch (\Exception $e) {
+            Log::error('Turnstile verification request failed', ['error' => $e->getMessage()]);
+            // On network failure, allow the submission (don't block legitimate users)
+            return true;
+        }
     }
 }
 ```
@@ -2308,6 +2384,7 @@ This service fires Cloudflare Pages deploy hooks. It is called by both content s
         'narrative' => env('CF_DEPLOY_HOOK_NARRATIVE'),
         'logic'     => env('CF_DEPLOY_HOOK_LOGIC'),
     ],
+    'turnstile_secret' => env('CF_TURNSTILE_SECRET_KEY'),
 ],
 ```
 
@@ -2319,11 +2396,19 @@ This service fires Cloudflare Pages deploy hooks. It is called by both content s
 namespace App\Services;
 
 use App\Models\DeployLog;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class DeployService
 {
+    /**
+     * Debounce window in seconds.
+     * If a deploy hook was fired for a site within this window,
+     * skip the duplicate. Cloudflare Pages will already be building.
+     */
+    private const DEBOUNCE_SECONDS = 60;
+
     public function trigger(string $siteKey, string $triggerSource = 'content_sync'): bool
     {
         $hookUrl = config("services.cloudflare.deploy_hooks.{$siteKey}");
@@ -2331,6 +2416,21 @@ class DeployService
         if (!$hookUrl) {
             Log::warning("No deploy hook configured for site: {$siteKey}");
             return false;
+        }
+
+        // Debounce: skip if a deploy was already triggered within the window
+        $cacheKey = "deploy_debounce:{$siteKey}";
+        if (Cache::has($cacheKey)) {
+            Log::info("Deploy hook debounced for {$siteKey} (triggered by: {$triggerSource})");
+
+            // Still log the debounced trigger for audit trail
+            DeployLog::create([
+                'site_key'       => $siteKey,
+                'trigger_source' => $triggerSource,
+                'status'         => 'debounced',
+            ]);
+
+            return true; // Return true — a build IS happening, just not a new one
         }
 
         $log = DeployLog::create([
@@ -2347,6 +2447,11 @@ class DeployService
                 'response_code' => $response->status(),
                 'response_body' => substr($response->body(), 0, 500),
             ]);
+
+            if ($response->successful()) {
+                // Set debounce lock — prevent duplicate hooks for this site
+                Cache::put($cacheKey, true, self::DEBOUNCE_SECONDS);
+            }
 
             return $response->successful();
 
@@ -2486,15 +2591,17 @@ return [
 
 ## 14. RATE LIMITING
 
-Public endpoints are rate-limited to prevent abuse:
+### 14.1 Rate Limit Tiers
 
-| Endpoint Group | Limit | Window |
-|:---|:---|:---|
-| Public API (`/sites/v1/*`) | 60 requests | 1 minute per IP |
-| Internal API (`/internal/v1/*`) | No limit | N/A (authenticated) |
-| Health check (`/health`) | No limit | N/A |
+| Tier | Endpoint Group | Limit | Window | Identification |
+|:---|:---|:---|:---|:---|
+| Public API (browser) | `/sites/v1/*` | 60 requests | 1 minute per IP | Default — no token |
+| Public API (build agents) | `/sites/v1/*` | 300 requests | 1 minute per IP | `X-Build-Token` header matches `api_keys` row with `scope: 'build'` |
+| Contact form | `/sites/v1/*/contact` | 5 requests | 1 minute per IP | Separate limiter on POST route |
+| Internal API | `/internal/v1/*` | No limit | N/A | Authenticated via `Authorization: Bearer` |
+| Health check | `/health` | No limit | N/A | Unauthenticated |
 
-**Configuration:** Uses Laravel's built-in `throttle` middleware applied in the route definition (see Section 7.2).
+**Configuration:** Uses Laravel's built-in `throttle` middleware with named rate limiters applied in the route definition (see Section 7.2).
 
 **Response when rate limit exceeded (429):**
 
@@ -2504,9 +2611,68 @@ Public endpoints are rate-limited to prevent abuse:
 }
 ```
 
-**Note:** During a Next.js build, each site makes 15-30 API calls. With 60 requests/minute per IP, a single build will never hit the limit. Even if all 3 sites build simultaneously from the same Cloudflare IP, the 60/min limit should be sufficient. If issues arise, increase to 120/min.
+### 14.2 Build Agent Identification
 
-**Rate Limit Monitoring:** Log all 429 responses to `laravel.log` with the client IP. If Cloudflare Pages build IPs are consistently hitting rate limits, increase the limit to 120/min or whitelist known Cloudflare builder IP ranges.
+Cloudflare Pages build agents send an `X-Build-Token` header to identify themselves for a higher rate limit. The token is a shared secret stored in the `api_keys` table with `scope: 'build'`.
+
+**Middleware:** `ResolveBuildAgent`
+
+```php
+<?php
+
+namespace App\Http\Middleware;
+
+use App\Models\ApiKey;
+use Closure;
+use Illuminate\Http\Request;
+
+class ResolveBuildAgent
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $token = $request->header('X-Build-Token');
+
+        if ($token) {
+            $hash = hash('sha256', $token);
+            $key  = ApiKey::where('key', $hash)
+                ->where('scope', 'build')
+                ->where('is_active', true)
+                ->first();
+
+            if ($key) {
+                $request->attributes->set('is_build_agent', true);
+                $key->update(['last_used_at' => now()]);
+            }
+        }
+
+        return $next($request);
+    }
+}
+```
+
+**Rate limiter definitions** (in `bootstrap/app.php` or `RouteServiceProvider`):
+
+```php
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Support\Facades\RateLimiter;
+
+RateLimiter::for('public_api', function (Request $request) {
+    if ($request->attributes->get('is_build_agent')) {
+        return Limit::perMinute(300)->by($request->ip());
+    }
+    return Limit::perMinute(60)->by($request->ip());
+});
+
+RateLimiter::for('contact_form', function (Request $request) {
+    return Limit::perMinute(5)->by($request->ip());
+});
+```
+
+### 14.3 Contact Form Rate Limit
+
+The contact form endpoint (`POST /sites/v1/{siteKey}/contact`) has a separate, stricter rate limit of **5 submissions per minute per IP**. This prevents abuse independently of the general public API limit. The `contact_form` rate limiter is applied in the route definition.
+
+**Rate Limit Monitoring:** Log all 429 responses to `laravel.log` with the client IP. If Cloudflare Pages build IPs are consistently hitting rate limits, verify the build token is being sent correctly.
 
 ---
 
@@ -2714,6 +2880,15 @@ MAIL_ENCRYPTION=ssl
 MAIL_FROM_ADDRESS=hello@zeplow.com
 MAIL_FROM_NAME="Zeplow"
 
+# Cloudflare Build Token (for build agent rate limit exemption)
+# Generate with: openssl rand -hex 32
+# Store SHA-256 hash in api_keys table with scope: 'build'
+CF_BUILD_TOKEN=...
+
+# Cloudflare Turnstile (contact form bot protection)
+# Obtain from Cloudflare dashboard → Turnstile → Create widget
+CF_TURNSTILE_SECRET_KEY=...
+
 # Logging
 LOG_CHANNEL=stack
 LOG_LEVEL=error
@@ -2723,7 +2898,7 @@ LOG_LEVEL=error
 
 | File | What to Add |
 |:---|:---|
-| `config/services.php` | `cloudflare.deploy_hooks` array (parent, narrative, logic) |
+| `config/services.php` | `cloudflare.deploy_hooks` array (parent, narrative, logic), `cloudflare.turnstile_secret` via `env('CF_TURNSTILE_SECRET_KEY')` |
 | `config/cache.php` | File driver with `zeplow_api` prefix |
 | `config/cors.php` | Allowed origins for all 3 sites + localhost |
 
@@ -2891,7 +3066,7 @@ api-app/
 | 2.5 | Create migration: `api_keys` table | See Section 4.2 schema | 1.3 |
 | 2.6 | Run all migrations | `php artisan migrate` | 1.1, 1.6, 2.1–2.5 |
 | 2.7 | Create Eloquent models | SiteContent, SiteConfig, ContactSubmission, DeployLog, ApiKey | 2.1–2.5 |
-| 2.8 | Create ApiKeySeeder | Generates 64-char API key, stores in `api_keys` table | 2.7 |
+| 2.8 | Create ApiKeySeeder | Generates 64-char API key, stores in `api_keys` table. Also create a second key with `scope: 'build'` and `name: 'Cloudflare Build Agent'` | 2.7 |
 | 2.9 | Run seeder, record API key | `php artisan db:seed --class=ApiKeySeeder` | 2.6, 2.8 |
 
 ### Phase 3: Middleware & Services (Day 3)
@@ -2954,6 +3129,97 @@ api-app/
 | 7.8 | Test: Contact form submission → email received | End-to-end contact test | 7.2 |
 | 7.9 | Test: Rate limiting works | 60+ requests in 1 minute → 429 | 7.2 |
 | 7.10 | Test: Honeypot detection works | Submit with fax_number filled → fake 200, nothing stored | 7.2 |
+| 7.11 | Create `scripts/test-api.sh` | Automated API test script (see Section 24.5) | 7.2 |
+| 7.12 | Run automated tests against production | Execute `scripts/test-api.sh` and verify all pass | 7.11 |
+
+### 24.5 Automated API Test Script
+
+**File:** `scripts/test-api.sh`
+
+This script provides a quick smoke-test suite that can be run after every deployment to verify core API functionality. It tests health, public endpoints, authentication, rate limiting, and contact form spam protection.
+
+```bash
+#!/usr/bin/env bash
+#
+# scripts/test-api.sh — Zeplow API Smoke Tests
+# Usage: ./scripts/test-api.sh [base_url]
+# Default base_url: https://api.zeplow.com
+#
+
+set -euo pipefail
+
+BASE="${1:-https://api.zeplow.com}"
+PASS=0
+FAIL=0
+
+check() {
+  local desc="$1" expected="$2" actual="$3"
+  if [ "$actual" = "$expected" ]; then
+    echo "  ✓ $desc"
+    ((PASS++))
+  else
+    echo "  ✗ $desc (expected $expected, got $actual)"
+    ((FAIL++))
+  fi
+}
+
+echo "=== Zeplow API Smoke Tests ==="
+echo "Base URL: $BASE"
+echo ""
+
+# 1. Health check
+echo "[1] Health Check"
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/health")
+check "GET /health returns 200" "200" "$STATUS"
+
+# 2. Public endpoints — pages
+echo "[2] Public Endpoints"
+for SITE in parent narrative logic; do
+  STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/sites/v1/$SITE/pages")
+  check "GET /sites/v1/$SITE/pages returns 200" "200" "$STATUS"
+done
+
+# 3. Public endpoints — projects
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/sites/v1/parent/projects")
+check "GET /sites/v1/parent/projects returns 200" "200" "$STATUS"
+
+# 4. Public endpoints — blog
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/sites/v1/parent/blog")
+check "GET /sites/v1/parent/blog returns 200" "200" "$STATUS"
+
+# 5. Invalid site key
+echo "[3] Error Handling"
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/sites/v1/nonexistent/pages")
+check "GET /sites/v1/nonexistent/pages returns 404" "404" "$STATUS"
+
+# 6. Internal endpoint without auth
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/internal/v1/sync/content")
+check "POST /internal/v1/sync/content without auth returns 401" "401" "$STATUS"
+
+# 7. Contact form — honeypot detection
+echo "[4] Spam Protection"
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Bot","email":"bot@test.com","message":"spam","fax_number":"gotcha"}' \
+  "$BASE/sites/v1/narrative/contact")
+check "POST contact with honeypot returns 200 (fake success)" "200" "$STATUS"
+
+# 8. Contact form — missing required fields
+STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@test.com"}' \
+  "$BASE/sites/v1/narrative/contact")
+check "POST contact with missing name returns 422" "422" "$STATUS"
+
+echo ""
+echo "=== Results: $PASS passed, $FAIL failed ==="
+[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+```
+
+**Usage:**
+- Local: `./scripts/test-api.sh http://localhost:8000`
+- Production: `./scripts/test-api.sh https://api.zeplow.com`
+- CI/CD: Run after every deployment to catch regressions
 
 ---
 
@@ -2997,6 +3263,10 @@ api-app/
 | POST /sites/v1/narrative/contact with missing name | Returns 422 with validation errors | ☐ |
 | POST /sites/v1/narrative/contact with invalid email | Returns 422 with validation errors | ☐ |
 | POST /sites/v1/narrative/contact with honeypot (`fax_number`) filled | Returns fake 200, nothing stored | ☐ |
+| Submit without Turnstile token | Returns fake 200, nothing stored | ☐ |
+| Submit with invalid Turnstile token | Returns fake 200, nothing stored | ☐ |
+| Submit with valid Turnstile token + valid data | Returns 200, submission stored, email sent | ☐ |
+| Turnstile secret not configured (dev mode) | Verification skipped, form works normally | ☐ |
 
 ### 25.4 Cache & Performance Tests
 
@@ -3014,6 +3284,11 @@ api-app/
 | Hit rate limit (60+ requests/minute) | Returns 429 | ☐ |
 | Internal endpoint ignores rate limit | No 429 regardless of request count | ☐ |
 | Trigger simultaneous builds for all 3 sites | None of the 3 builds receive 429 responses | ☐ |
+| Public request without build token, 60+ requests/min | Returns 429 | ☐ |
+| Request with valid build token, 60-300 requests/min | Returns 200 (no 429) | ☐ |
+| Request with invalid build token | Falls back to 60/min public limit | ☐ |
+| Contact form, 5+ submissions/min from same IP | Returns 429 on 6th | ☐ |
+| Trigger simultaneous builds for all 3 sites | No 429 errors in any build log | ☐ |
 
 ### 25.6 Deploy Hook Tests
 
@@ -3024,6 +3299,10 @@ api-app/
 | Content delete triggers deploy hook | deploy_logs shows "success" | ☐ |
 | Manual trigger via /internal/v1/deploy/trigger/{siteKey} | deploy_logs shows "success" | ☐ |
 | Invalid site_key for deploy | No crash, warning logged | ☐ |
+| Sync 2 items for same site within 10 seconds | Only 1 deploy hook fires, second is debounced | ☐ |
+| Check deploy_logs after debounced deploy | Shows "debounced" status with trigger_source | ☐ |
+| Wait 60+ seconds, sync again | New deploy hook fires (debounce expired) | ☐ |
+| Resync All for all 3 sites | Exactly 3 deploy hooks fire (1 per site) | ☐ |
 
 ---
 
@@ -3045,6 +3324,8 @@ api-app/
 | 12 | Monitor laravel.log for errors | Weekly |
 | 13 | Verify rate limiting is functioning (not too strict for builds, not too loose for abuse) | Day 2 |
 | 14 | Verify cache invalidation works after content updates | Day 2 |
+| 15 | Create Cloudflare Turnstile widget, add site key to frontend env and secret key to API env | Day 1 |
+| 16 | Run `scripts/test-api.sh` against production | Day 1, then after every deployment |
 
 ---
 

@@ -1,6 +1,6 @@
 # ZEPLOW PARENT SITE (zeplow.com) — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.1
+**Version:** 1.2
 **Date:** March 27, 2026
 **Derived From:** Zeplow Platform Central PRD v1.2, Company Profile, Brand Documents
 **Original Author:** Shakib Bin Kabir
@@ -1333,6 +1333,8 @@ NEXT_PUBLIC_SITE_KEY=parent
 | `NEXT_PUBLIC_API_URL` | `https://api.zeplow.com` |
 | `NEXT_PUBLIC_SITE_KEY` | `parent` |
 | `NODE_VERSION` | `18` |
+| `CF_BUILD_TOKEN` | Build agent token for API rate limit exemption. Must match the unhashed value stored in the API. Set in Cloudflare Pages environment variables (not in `.env.local` for local dev — local dev uses the default 60/min public limit, which is sufficient for single-site dev). |
+| `NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (client-side, safe to expose). |
 
 ---
 
@@ -1572,6 +1574,9 @@ For the static export, also generate a `404.html` in `apps/parent/public/` that 
 | Submit with missing required fields | Validation error shown | ☐ |
 | Submit with honeypot filled | Fake success, nothing stored in API | ☐ |
 | API unreachable | Error message with fallback email | ☐ |
+| Turnstile widget renders on contact page | Cloudflare challenge visible below form fields | ☐ |
+| Complete Turnstile challenge, submit form | Form submits successfully | ☐ |
+| Turnstile site key missing (local dev without key) | Form renders without Turnstile widget, still submits | ☐ |
 
 ### 21.5 Performance Tests
 
@@ -1632,7 +1637,7 @@ The following limitations are accepted for V1 and may be addressed in future ite
 | 1 | No content versioning | If incorrect content is published, there is no built-in way to revert to a previous version | Manually edit and correct content in the CMS; Cloudflare Pages rollback can restore the last successful build |
 | 2 | No offline/service worker support | Site requires an internet connection to load; no offline caching of pages | Acceptable for a corporate site — users are expected to have connectivity |
 | 3 | No A/B testing capability | Cannot run split tests on page variants, CTAs, or content blocks | Future enhancement if conversion optimization becomes a priority |
-| 4 | Images are not optimized by Next.js | Static export requires `unoptimized: true`, so Next.js `<Image>` optimization (resizing, format conversion, quality adjustment) is unavailable at build time | Relies on Spatie MediaLibrary conversions (large/medium/thumbnail) generated at upload time, and Cloudflare CDN caching for delivery performance (see Section 9.4) |
+| 4 | No build-time image optimization | Static export disables Next.js `<Image>` optimization | Mitigated by 4-stage pipeline: upload validation → Spatie size conversions → Cloudflare CDN/Polish → responsive `<picture>` rendering with `srcSet` and lazy loading |
 
 ---
 

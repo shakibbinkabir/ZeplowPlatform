@@ -1,6 +1,6 @@
 # ZEPLOW CMS — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** March 27, 2026
 **Derived From:** Zeplow Platform Central PRD v1.1 (March 11, 2026)
 **Original Author:** Shakib Bin Kabir
@@ -1119,6 +1119,81 @@ When synced to the API, this JSON array is sent as-is inside the `data.content` 
 ]
 ```
 
+### 7.4 Block-Level Validation Rules
+
+Each block type's fields must be validated inside the Filament Repeater using Filament's `->schema()` validation. The Repeater itself is nullable (a page can have zero blocks), but once a block is added, its required fields must be enforced.
+
+**Implementation pattern:**
+
+```php
+// In PageResource form() method
+Forms\Components\Repeater::make('content')
+    ->schema([
+        Forms\Components\Select::make('type')
+            ->options([
+                'hero'         => 'Hero Banner',
+                'text'         => 'Text Section',
+                'cards'        => 'Card Grid',
+                'cta'          => 'Call to Action',
+                'image'        => 'Single Image',
+                'gallery'      => 'Image Gallery',
+                'testimonials' => 'Testimonials',
+                'team'         => 'Team Members',
+                'projects'     => 'Project Grid',
+                'stats'        => 'Statistics',
+                'divider'      => 'Divider',
+                'raw_html'     => 'Raw HTML',
+            ])
+            ->required()
+            ->reactive()
+            ->afterStateUpdated(fn (callable $set) => $set('data', [])),
+
+        // Conditional fields based on block type
+        Forms\Components\Group::make()
+            ->schema(fn (callable $get) => match ($get('type')) {
+                'hero'  => self::heroBlockFields(),
+                'text'  => self::textBlockFields(),
+                'cards' => self::cardsBlockFields(),
+                'cta'   => self::ctaBlockFields(),
+                'image' => self::imageBlockFields(),
+                // ... etc for all 12 types
+                default => [],
+            }),
+    ])
+    ->collapsible()
+    ->reorderableWithButtons()
+    ->columnSpanFull()
+```
+
+**Validation rules per block type:**
+
+| Block Type | Field | Validation Rule |
+|:---|:---|:---|
+| `hero` | `data.heading` | `required, string, max:255` |
+| `hero` | `data.cta_text` | `required_with:data.cta_url, string, max:100` |
+| `hero` | `data.cta_url` | `required_with:data.cta_text, string, max:500` |
+| `hero` | `data.background_color` | `nullable, regex:/^#[0-9A-Fa-f]{6}$/` |
+| `text` | `data.body` | `required, string` |
+| `cards` | `data.cards` | `required, array, min:1` |
+| `cards` | `data.cards.*.title` | `required, string, max:255` |
+| `cards` | `data.cards.*.description` | `required, string, max:1000` |
+| `cta` | `data.heading` | `required, string, max:255` |
+| `cta` | `data.button_text` | `required, string, max:100` |
+| `cta` | `data.button_url` | `required, string, max:500` |
+| `cta` | `data.style` | `required, in:primary,secondary` |
+| `image` | `data.image` | `required, file, image, max:5120` (5 MB) |
+| `image` | `data.alt_text` | `required, string, max:255` |
+| `gallery` | `data.images` | `required, array, min:1` |
+| `gallery` | `data.images.*.image` | `required, file, image, max:5120` |
+| `gallery` | `data.images.*.alt_text` | `required, string, max:255` |
+| `stats` | `data.stats` | `required, array, min:1` |
+| `stats` | `data.stats.*.number` | `required, string, max:50` |
+| `stats` | `data.stats.*.label` | `required, string, max:100` |
+| `divider` | `data.style` | `required, in:line,space,gradient` |
+| `raw_html` | `data.html` | `required, string, max:10000` |
+
+**Frontend safety net:** Even with CMS validation, the `ContentRenderer` in `packages/ui/src/ContentRenderer.tsx` should defensively check for required fields before rendering each block. If a required field is missing, skip the block and log a warning in development mode. This protects against edge cases where data corruption occurs during sync. See Central PRD Section 5.7 for the `isValidBlock` implementation.
+
 ---
 
 ## 8. FILAMENT DASHBOARD WIDGETS
@@ -1209,11 +1284,16 @@ Filament's built-in auth (Laravel session-based). No external SSO, OAuth, or soc
 
 Defined on models that have images (Project, etc.):
 
-| Conversion | Dimensions | Use Case |
-|:---|:---|:---|
-| `thumbnail` | 300 x 300 | Admin panel previews, small grid views |
-| `medium` | 800 x 600 | List pages, card components |
-| `large` | 1920 x 1080 | Full-width hero images, project detail pages |
+| Conversion Name | Max Width | Max Height | Fit Mode | Quality | Format |
+|:---|:---|:---|:---|:---|:---|
+| `thumbnail` | 400 | 300 | crop | 80 | Original |
+| `medium` | 800 | 600 | contain | 85 | Original |
+| `large` | 1600 | 1200 | contain | 90 | Original |
+| `large-webp` | 1600 | 1200 | contain | 85 | WebP |
+
+The `large-webp` conversion provides a WebP alternative for browsers that support it. The frontend uses a `<picture>` element or `srcSet` to serve the most efficient format.
+
+**Note:** If Cloudflare Polish (Pro plan) is enabled on `cms.zeplow.com`, the `large-webp` conversion is redundant — Polish handles WebP conversion at the CDN edge. In that case, remove `large-webp` to save storage space.
 
 ### 10.3 How Images Reach the Frontend
 
@@ -1694,6 +1774,13 @@ class PageObserver
                 ],
                 publishedAt: $page->published_at?->toISOString(),
             );
+        } elseif ($page->isDirty('is_published') && !$page->is_published) {
+            // Just unpublished — remove from API
+            $this->syncService->deleteContent(
+                siteKey: $page->site->key,
+                contentType: 'page',
+                slug: $page->slug,
+            );
         }
     }
 
@@ -1739,12 +1826,30 @@ class ProjectObserver
                     'solution'    => $project->solution,
                     'outcome'     => $project->outcome,
                     'tech_stack'  => $project->tech_stack,
-                    'images'      => $project->getMedia('images')->map->getUrl()->toArray(),
+                    'images'      => $project->getMedia('images')->map(function ($media) {
+                        return [
+                            'original'  => $media->getUrl(),
+                            'large'     => $media->getUrl('large'),
+                            'medium'    => $media->getUrl('medium'),
+                            'thumbnail' => $media->getUrl('thumbnail'),
+                            'large_webp' => $media->hasGeneratedConversion('large-webp')
+                                ? $media->getUrl('large-webp')
+                                : null,
+                            'alt'       => $media->getCustomProperty('alt', ''),
+                        ];
+                    })->toArray(),
                     'tags'        => $project->tags,
                     'featured'    => $project->featured,
                     'sort_order'  => $project->sort_order,
                 ],
                 publishedAt: now()->toISOString(),
+            );
+        } elseif ($project->isDirty('is_published') && !$project->is_published) {
+            // Just unpublished — remove from API
+            $this->syncService->deleteContent(
+                siteKey: $project->site->key,
+                contentType: 'project',
+                slug: $project->slug,
             );
         }
     }
@@ -1795,6 +1900,13 @@ class BlogPostObserver
                 ],
                 publishedAt: $post->published_at?->toISOString(),
             );
+        } elseif ($post->isDirty('is_published') && !$post->is_published) {
+            // Just unpublished — remove from API
+            $this->syncService->deleteContent(
+                siteKey: $post->site->key,
+                contentType: 'blog_post',
+                slug: $post->slug,
+            );
         }
     }
 
@@ -1839,6 +1951,13 @@ class TestimonialObserver
                     'sort_order' => $testimonial->sort_order,
                 ],
                 publishedAt: now()->toISOString(),
+            );
+        } elseif ($testimonial->isDirty('is_published') && !$testimonial->is_published) {
+            // Just unpublished — remove from API
+            $this->syncService->deleteContent(
+                siteKey: $testimonial->site->key,
+                contentType: 'testimonial',
+                slug: \Illuminate\Support\Str::slug($testimonial->name . '-' . $testimonial->id),
             );
         }
     }
@@ -2054,6 +2173,14 @@ class ResyncAllAction
 ```
 
 **How it works:** Calling `touch()` on a model updates its `updated_at` timestamp, which fires the `saved` event on the model, which triggers the registered Observer, which dispatches the appropriate sync job. This reuses the entire existing sync pipeline without duplicate code.
+
+**Deploy hook behavior during Resync All:**
+
+When "Resync All Content" is triggered, the CMS sends individual sync requests to the API for every published content item. Each sync triggers the API's DeployService, but the API's 60-second debounce window means only the FIRST sync per site actually fires a Cloudflare Pages deploy hook. Subsequent syncs within that 60-second window are debounced — the content is still stored in the API database, but no redundant deploy hook is fired.
+
+This means a full resync of all 3 sites results in exactly 3 Cloudflare builds (one per site), not one-per-content-item.
+
+If the resync takes longer than 60 seconds per site (unlikely with synchronous queue), a maximum of 2 builds per site may be triggered. This is acceptable.
 
 ---
 
@@ -2602,6 +2729,12 @@ cms-app/
 | Filter pages by site | Only pages for selected site shown | ☐ |
 | Filter pages by published status | Correct filtering | ☐ |
 | Filter projects by featured | Only featured projects shown | ☐ |
+| Add hero block with empty heading, try to save | Filament shows validation error on heading field | ☐ |
+| Add cards block with zero cards, try to save | Filament shows "minimum 1 card" error | ☐ |
+| Add CTA block with button_text but no button_url | Filament shows validation error on button_url | ☐ |
+| Add image block without alt_text | Filament shows validation error on alt_text | ☐ |
+| Add stats block with empty stats repeater | Filament shows "minimum 1 stat" error | ☐ |
+| Add valid hero block, save page | Saves successfully, content JSON is well-formed | ☐ |
 
 ### 24.3 Sync System
 
@@ -2616,6 +2749,10 @@ cms-app/
 | Update site config | Config synced to API | ☐ |
 | Use "Resync All Content" action | All published content re-sent to API | ☐ |
 | API is down during publish | Sync job fails after 3 retries, sync_logs shows "failed" | ☐ |
+| Publish a page, then unpublish it | deleteContent dispatched, API removes the page | ☐ |
+| Unpublish a project | deleteContent dispatched, project removed from API | ☐ |
+| Save a draft page (never published) | No sync dispatched at all | ☐ |
+| Save a draft page, edit it again (still draft) | No sync dispatched | ☐ |
 
 ### 24.4 Media & Images
 

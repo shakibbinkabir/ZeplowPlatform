@@ -1,6 +1,6 @@
 # ZEPLOW NARRATIVE SITE (narrative.zeplow.com) — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.1
+**Version:** 1.2
 **Date:** March 27, 2026
 **Derived From:** Zeplow Platform Central PRD v1.1, Creative Agency Brand Document, Company Profile
 **Original Author:** Shakib Bin Kabir
@@ -98,7 +98,7 @@ From the brand document — the **Ideal Customer Profile**:
 
 - **No content versioning** — manual CMS rollback only. The CMS does not support draft history or version diffing.
 - **No offline/service worker support in V1** — the site is a standard static export with no PWA capabilities.
-- **Image optimization relies on Spatie conversions + Cloudflare CDN, not Next.js Image component** — because static export uses `unoptimized: true`, all image sizing and format optimization must happen at the CMS level (via Spatie MediaLibrary conversions) and at the CDN level (via Cloudflare caching/Polish). The frontend does not resize, compress, or convert images at build time.
+- **Image optimization uses a 4-stage pipeline instead of Next.js Image component** — because static export uses `unoptimized: true`, image optimization is handled by: (1) upload validation in CMS, (2) Spatie MediaLibrary size conversions, (3) Cloudflare CDN/Polish for format conversion, and (4) responsive `<picture>` rendering with `srcSet` and lazy loading in the frontend. See Central PRD Section 5 for the complete pipeline.
 - **Texture/collage overlay treatment is a pre-upload responsibility** — the visual rules in Section 2.4 describe collage/texture overlays as part of Narrative's signature style. These treatments must be applied to images before upload in the CMS. The frontend does not apply image filters, overlays, or compositing at build time.
 
 ---
@@ -1122,6 +1122,8 @@ NEXT_PUBLIC_SITE_KEY=narrative
 | `NEXT_PUBLIC_API_URL` | `https://api.zeplow.com` |
 | `NEXT_PUBLIC_SITE_KEY` | `narrative` |
 | `NODE_VERSION` | `18` |
+| `CF_BUILD_TOKEN` | Build agent token for API rate limit exemption. Must match the unhashed value stored in the API. Set in Cloudflare Pages environment variables (not in `.env.local` for local dev — local dev uses the default 60/min public limit, which is sufficient for single-site dev). |
+| `NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (client-side, safe to expose). |
 
 ---
 
@@ -1335,6 +1337,9 @@ Create a custom `not-found.tsx` (`apps/narrative/app/not-found.tsx`) with Narrat
 | Email notification subject includes "narrative" | "New Lead — narrative" | ☐ |
 | Honeypot filled | Fake success, nothing stored | ☐ |
 | Missing required fields | Validation error shown | ☐ |
+| Turnstile widget renders on contact page | Cloudflare challenge visible below form fields | ☐ |
+| Complete Turnstile challenge, submit form | Form submits successfully | ☐ |
+| Turnstile site key missing (local dev without key) | Form renders without Turnstile widget, still submits | ☐ |
 
 ### 21.6 Cross-Site Link Tests
 
