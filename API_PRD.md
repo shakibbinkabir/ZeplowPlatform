@@ -1,6 +1,6 @@
 # ZEPLOW API — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.0
+**Version:** 1.2
 **Date:** March 27, 2026
 **Derived From:** Zeplow Platform Central PRD v1.1 (March 11, 2026)
 **Original Author:** Shakib Bin Kabir
@@ -166,8 +166,9 @@ Step 3: API upserts content into site_content table
         - New record → create
 
 Step 4: API invalidates relevant cache keys
-        - List cache: site:{siteKey}:{cachePrefix}:list
-        - Detail cache: site:{siteKey}:{cachePrefix}:{slug}
+        - List cache: Increments cache version counter for site:{siteKey}:{cachePrefix}
+          (old parameterized list cache keys become orphaned and expire naturally after TTL)
+        - Detail cache: site:{siteKey}:{cachePrefix}:{slug} (directly forgotten)
         - Uses TYPE_TO_CACHE_PREFIX mapping (see Section 12)
 
 Step 5: API fires Cloudflare Pages deploy hook for the affected site
@@ -186,7 +187,7 @@ Step 1: CMS sends HTTP DELETE to /internal/v1/content/sync
 
 Step 2: API deletes the matching record from site_content table
 
-Step 3: API invalidates relevant cache keys (list + detail)
+Step 3: API invalidates relevant cache keys (version counter increment + detail cache clear)
 
 Step 4: API fires deploy hook for the affected site
 ```
@@ -229,7 +230,7 @@ Step 1: Visitor fills out contact form on any frontend site (runtime, in browser
 
 Step 2: Browser POSTs to /sites/v1/{siteKey}/contact
         - Payload: { name, email, company, message, budget_range, source }
-        - Includes hidden honeypot field (website_url)
+        - Includes hidden honeypot field (fax_number)
 
 Step 3: API checks honeypot — if filled, return fake 200 success (bot detected, nothing stored)
 
@@ -451,7 +452,7 @@ CREATE TABLE deploy_logs (
 CREATE TABLE api_keys (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,                 -- Human-readable label: "CMS Sync Key"
-    `key` VARCHAR(64) NOT NULL UNIQUE,          -- 64-character random string
+    `key` VARCHAR(64) NOT NULL UNIQUE,          -- SHA-256 hash of the API key (plaintext shown once at generation)
     scope VARCHAR(50) NOT NULL DEFAULT 'internal',  -- "internal" for CMS→API sync
     is_active BOOLEAN NOT NULL DEFAULT TRUE,    -- Can be deactivated without deletion
     last_used_at TIMESTAMP NULL,                -- Updated on every authenticated request
@@ -757,9 +758,6 @@ class ApiKey extends Model
         'last_used_at' => 'datetime',
     ];
 
-    protected $hidden = [
-        'key',
-    ];
 }
 ```
 
@@ -771,7 +769,7 @@ class ApiKey extends Model
 
 | Endpoint Group | Auth Method | Details |
 |:---|:---|:---|
-| Internal (`/internal/v1/*`) | Bearer token (API key) | 64-char random string, validated against `api_keys` table |
+| Internal (`/internal/v1/*`) | Bearer token (API key) | 64-char random string, SHA-256 hashed before validation against `api_keys` table |
 | Public (`/sites/v1/*` GET) | None | Open read-only endpoints |
 | Public (`/sites/v1/*/contact` POST) | None | Rate-limited, honeypot spam protection |
 | Health (`/health`) | None | Open monitoring endpoint |
@@ -779,9 +777,10 @@ class ApiKey extends Model
 ### 6.2 API Key Format
 
 - 64-character random string generated via `Str::random(64)`
-- Stored in `api_keys` table in the API database
-- Same key is configured in the CMS app's `.env` as `ZEPLOW_API_KEY`
+- Stored as a **SHA-256 hash** in the `api_keys` table — the plaintext key is shown once at generation and cannot be retrieved
+- Same plaintext key is configured in the CMS app's `.env` as `ZEPLOW_API_KEY`
 - Sent in `Authorization: Bearer {api_key}` header
+- On validation, the incoming bearer token is hashed with SHA-256 before querying the database
 
 ### 6.3 ValidateApiKey Middleware
 
@@ -804,7 +803,7 @@ class ValidateApiKey
             return response()->json(['error' => 'Missing API key'], 401);
         }
 
-        $apiKey = ApiKey::where('key', $token)
+        $apiKey = ApiKey::where('key', hash('sha256', $token))
             ->where('is_active', true)
             ->where('scope', $scope)
             ->first();
@@ -821,16 +820,44 @@ class ValidateApiKey
 }
 ```
 
-### 6.4 Middleware Registration
+### 6.4 ValidateSiteKey Middleware
+
+Validates `{siteKey}` route parameter against a whitelist of known site keys. Returns 404 immediately for unknown site keys, preventing database queries and cache pollution for invalid keys.
+
+```php
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+
+class ValidateSiteKey
+{
+    private const VALID_SITE_KEYS = ['parent', 'narrative', 'logic'];
+
+    public function handle(Request $request, Closure $next)
+    {
+        $siteKey = $request->route('siteKey');
+        if (!in_array($siteKey, self::VALID_SITE_KEYS)) {
+            return response()->json(['error' => 'Not found'], 404);
+        }
+        return $next($request);
+    }
+}
+```
+
+### 6.5 Middleware Registration
 
 Register the middleware in `app/Http/Kernel.php` (or `bootstrap/app.php` in Laravel 11):
 
 ```php
 // Route middleware aliases
-'api_key' => \App\Http\Middleware\ValidateApiKey::class,
+'api_key'  => \App\Http\Middleware\ValidateApiKey::class,
+'site_key' => \App\Http\Middleware\ValidateSiteKey::class,
 ```
 
-### 6.5 Key Generation (One-Time Setup)
+### 6.6 Key Generation (One-Time Setup)
 
 Run this via tinker or a seeder to generate the initial API key:
 
@@ -842,13 +869,13 @@ $key = Str::random(64);
 
 ApiKey::create([
     'name'  => 'CMS Sync Key',
-    'key'   => $key,
+    'key'   => hash('sha256', $key),
     'scope' => 'internal',
 ]);
 
 echo "API Key: {$key}";
 // Copy this key to the CMS app's .env as ZEPLOW_API_KEY
-// Store it securely — it cannot be retrieved later (not hashed, but treat as secret)
+// Store it securely — the plaintext key is shown only once and cannot be retrieved
 ```
 
 ---
@@ -914,7 +941,7 @@ use Illuminate\Support\Facades\Route;
 |
 */
 Route::prefix('sites/v1/{siteKey}')
-    ->middleware('throttle:60,1')
+    ->middleware(['throttle:60,1', 'site_key'])
     ->group(function () {
 
         // Read-only data endpoints
@@ -1085,7 +1112,7 @@ Returns all published pages for a site (list view — no content blocks).
 ]
 ```
 
-**Cache:** `site:{siteKey}:pages:list` — 1 hour.
+**Cache:** `site:{siteKey}:pages:v{version}:list` — 1 hour. Version counter ensures all list caches are invalidated atomically on content sync.
 
 #### GET `/sites/v1/{siteKey}/pages/{slug}`
 
@@ -1163,7 +1190,8 @@ class SitePageController extends Controller
 {
     public function index(string $siteKey)
     {
-        $cacheKey = "site:{$siteKey}:pages:list";
+        $version  = Cache::get("site:{$siteKey}:pages:version", 1);
+        $cacheKey = "site:{$siteKey}:pages:v{$version}:list";
 
         $data = Cache::remember($cacheKey, 3600, function () use ($siteKey) {
             return SiteContent::where('site_key', $siteKey)
@@ -1281,7 +1309,7 @@ class SitePageController extends Controller
 }
 ```
 
-**Cache:** `site:{siteKey}:projects:list:{featured}:{limit}:{page}:{perPage}` — 1 hour.
+**Cache:** `site:{siteKey}:projects:v{version}:list:{featured}:{limit}:{page}:{perPage}` — 1 hour. Version counter ensures all parameterized list caches are invalidated atomically on content sync.
 
 #### GET `/sites/v1/{siteKey}/projects/{slug}`
 
@@ -1337,7 +1365,8 @@ class SiteProjectController extends Controller
         $page     = $request->integer('page', 1);
         $perPage  = $request->integer('per_page', 50);
 
-        $cacheKey = "site:{$siteKey}:projects:list:{$featured}:{$limit}:{$page}:{$perPage}";
+        $version  = Cache::get("site:{$siteKey}:projects:version", 1);
+        $cacheKey = "site:{$siteKey}:projects:v{$version}:list:{$featured}:{$limit}:{$page}:{$perPage}";
 
         $data = Cache::remember($cacheKey, 3600, function () use ($siteKey, $featured, $limit, $page, $perPage) {
             $query = SiteContent::where('site_key', $siteKey)
@@ -1463,7 +1492,7 @@ class SiteProjectController extends Controller
 }
 ```
 
-**Cache:** `site:{siteKey}:blog:list:{tag}:{limit}:{page}:{perPage}` — 1 hour.
+**Cache:** `site:{siteKey}:blog:v{version}:list:{tag}:{limit}:{page}:{perPage}` — 1 hour. Version counter ensures all parameterized list caches are invalidated atomically on content sync.
 **Sort order:** `published_at` descending (newest first).
 
 #### GET `/sites/v1/{siteKey}/blog/{slug}`
@@ -1513,7 +1542,8 @@ class SiteBlogController extends Controller
         $page    = $request->integer('page', 1);
         $perPage = $request->integer('per_page', 20);
 
-        $cacheKey = "site:{$siteKey}:blog:list:{$tag}:{$limit}:{$page}:{$perPage}";
+        $version  = Cache::get("site:{$siteKey}:blog:version", 1);
+        $cacheKey = "site:{$siteKey}:blog:v{$version}:list:{$tag}:{$limit}:{$page}:{$perPage}";
 
         $data = Cache::remember($cacheKey, 3600, function () use ($siteKey, $tag, $limit, $page, $perPage) {
             $query = SiteContent::where('site_key', $siteKey)
@@ -1609,7 +1639,7 @@ class SiteBlogController extends Controller
 ]
 ```
 
-**Cache:** `site:{siteKey}:testimonials:list` — 1 hour.
+**Cache:** `site:{siteKey}:testimonials:v{version}:list` — 1 hour. Version counter ensures list cache is invalidated atomically on content sync.
 
 **Implementation:**
 
@@ -1626,7 +1656,8 @@ class SiteTestimonialController extends Controller
 {
     public function index(string $siteKey)
     {
-        $cacheKey = "site:{$siteKey}:testimonials:list";
+        $version  = Cache::get("site:{$siteKey}:testimonials:version", 1);
+        $cacheKey = "site:{$siteKey}:testimonials:v{$version}:list";
 
         $data = Cache::remember($cacheKey, 3600, function () use ($siteKey) {
             return SiteContent::where('site_key', $siteKey)
@@ -1691,7 +1722,7 @@ class SiteTestimonialController extends Controller
 ]
 ```
 
-**Cache:** `site:{siteKey}:team:list` — 1 hour.
+**Cache:** `site:{siteKey}:team:v{version}:list` — 1 hour. Version counter ensures list cache is invalidated atomically on content sync.
 
 **Implementation:**
 
@@ -1708,7 +1739,8 @@ class SiteTeamController extends Controller
 {
     public function index(string $siteKey)
     {
-        $cacheKey = "site:{$siteKey}:team:list";
+        $version  = Cache::get("site:{$siteKey}:team:version", 1);
+        $cacheKey = "site:{$siteKey}:team:v{$version}:list";
 
         $data = Cache::remember($cacheKey, 3600, function () use ($siteKey) {
             return SiteContent::where('site_key', $siteKey)
@@ -1771,7 +1803,7 @@ class SiteTeamController extends Controller
 | `budget_range` | nullable, string, max:100 |
 | `source` | nullable, string, max:255 |
 
-**Spam Protection:** Hidden honeypot field (`website_url`). If the hidden field is filled by a bot, the API returns a fake success response without storing or emailing. The response is identical to a real success — never alert the bot.
+**Spam Protection:** Hidden honeypot field (`fax_number`). The field name is chosen to sound like a real form field to trick bots, but it is not part of the actual form. If the hidden field is filled by a bot, the API returns a fake success response without storing or emailing. The response is identical to a real success — never alert the bot.
 
 **Success Response (200):**
 
@@ -1820,7 +1852,7 @@ class ContactController extends Controller
     public function store(Request $request, string $siteKey)
     {
         // Honeypot check — reject silently if filled
-        if ($request->filled('website_url')) {
+        if ($request->filled('fax_number')) {
             return response()->json([
                 'status'  => 'received',
                 'message' => 'Thank you. We\'ll be in touch within 24 hours.',
@@ -2025,13 +2057,16 @@ class ContentSyncController extends Controller
             ]
         );
 
-        // Clear relevant caches using the correct prefix
+        // Invalidate caches using version counter strategy
         $siteKey     = $validated['site_key'];
         $type        = $validated['content_type'];
         $slug        = $validated['slug'];
         $cachePrefix = self::TYPE_TO_CACHE_PREFIX[$type] ?? $type . 's';
 
-        Cache::forget("site:{$siteKey}:{$cachePrefix}:list");
+        // Increment version counter — all old list cache keys (including parameterized
+        // variants like list:true:3:1:50) become orphaned and expire naturally after TTL
+        Cache::increment("site:{$siteKey}:{$cachePrefix}:version");
+        // Detail cache uses a fixed key, so direct forget is safe
         Cache::forget("site:{$siteKey}:{$cachePrefix}:{$slug}");
 
         // Trigger deploy
@@ -2061,7 +2096,7 @@ class ContentSyncController extends Controller
         $cachePrefix = self::TYPE_TO_CACHE_PREFIX[$validated['content_type']]
             ?? $validated['content_type'] . 's';
 
-        Cache::forget("site:{$validated['site_key']}:{$cachePrefix}:list");
+        Cache::increment("site:{$validated['site_key']}:{$cachePrefix}:version");
         Cache::forget("site:{$validated['site_key']}:{$cachePrefix}:{$validated['slug']}");
 
         $this->deployService->trigger($validated['site_key'], 'content_delete');
@@ -2075,10 +2110,10 @@ class ContentSyncController extends Controller
             'site_key' => 'required|string|max:50',
         ]);
 
-        // Clear ALL caches for this site
+        // Increment version counters for ALL content types (invalidates all list caches)
         $siteKey = $validated['site_key'];
         foreach (self::TYPE_TO_CACHE_PREFIX as $type => $prefix) {
-            Cache::forget("site:{$siteKey}:{$prefix}:list");
+            Cache::increment("site:{$siteKey}:{$prefix}:version");
         }
         Cache::forget("site:{$siteKey}:config");
 
@@ -2349,17 +2384,20 @@ File-based cache (cPanel compatible, no Redis needed).
 
 All cache keys follow the pattern: `site:{siteKey}:{contentPrefix}:{identifier}`
 
+List cache keys include a version counter (`v{version}`) to enable atomic invalidation of all parameterized variants. When content is synced, the version counter is incremented — old cache keys become orphaned and expire naturally after TTL. This approach is compatible with Laravel's file-based cache driver (no Redis or tag support required).
+
 | Cache Key Pattern | TTL | Endpoint | Invalidated By |
 |:---|:---|:---|:---|
-| `site:{siteKey}:config` | 1 hour | GET /config | Config sync |
-| `site:{siteKey}:pages:list` | 1 hour | GET /pages | Page sync/delete |
-| `site:{siteKey}:pages:{slug}` | 1 hour | GET /pages/{slug} | Page sync/delete |
-| `site:{siteKey}:projects:list:{featured}:{limit}:{page}:{perPage}` | 1 hour | GET /projects | Project sync/delete |
-| `site:{siteKey}:projects:{slug}` | 1 hour | GET /projects/{slug} | Project sync/delete |
-| `site:{siteKey}:blog:list:{tag}:{limit}:{page}:{perPage}` | 1 hour | GET /blog | Blog post sync/delete |
-| `site:{siteKey}:blog:{slug}` | 1 hour | GET /blog/{slug} | Blog post sync/delete |
-| `site:{siteKey}:testimonials:list` | 1 hour | GET /testimonials | Testimonial sync/delete |
-| `site:{siteKey}:team:list` | 1 hour | GET /team | Team member sync/delete |
+| `site:{siteKey}:config` | 1 hour | GET /config | Config sync (direct forget) |
+| `site:{siteKey}:{prefix}:version` | Forever | — | Incremented on content sync/delete |
+| `site:{siteKey}:pages:v{version}:list` | 1 hour | GET /pages | Page sync/delete (version increment) |
+| `site:{siteKey}:pages:{slug}` | 1 hour | GET /pages/{slug} | Page sync/delete (direct forget) |
+| `site:{siteKey}:projects:v{version}:list:{featured}:{limit}:{page}:{perPage}` | 1 hour | GET /projects | Project sync/delete (version increment) |
+| `site:{siteKey}:projects:{slug}` | 1 hour | GET /projects/{slug} | Project sync/delete (direct forget) |
+| `site:{siteKey}:blog:v{version}:list:{tag}:{limit}:{page}:{perPage}` | 1 hour | GET /blog | Blog post sync/delete (version increment) |
+| `site:{siteKey}:blog:{slug}` | 1 hour | GET /blog/{slug} | Blog post sync/delete (direct forget) |
+| `site:{siteKey}:testimonials:v{version}:list` | 1 hour | GET /testimonials | Testimonial sync/delete (version increment) |
+| `site:{siteKey}:team:v{version}:list` | 1 hour | GET /team | Team member sync/delete (version increment) |
 
 ### 12.3 TYPE_TO_CACHE_PREFIX Mapping
 
@@ -2378,20 +2416,20 @@ Without this mapping, a blog post sync would try to invalidate `site:narrative:b
 ### 12.4 Cache Invalidation Rules
 
 On content sync (create/update):
-1. Clear the list cache: `site:{siteKey}:{prefix}:list`
-2. Clear the detail cache: `site:{siteKey}:{prefix}:{slug}`
+1. Increment the version counter: `Cache::increment("site:{siteKey}:{prefix}:version")` — this atomically invalidates ALL list cache keys for that content type, including every parameterized variant (e.g., `list:true:3:1:50`). Old cache entries become orphaned and expire naturally after their 1-hour TTL.
+2. Clear the detail cache: `Cache::forget("site:{siteKey}:{prefix}:{slug}")`
 
 On content delete:
-1. Same as sync (both list and detail caches)
+1. Same as sync (version counter increment + detail cache forget)
 
 On config sync:
-1. Clear config cache: `site:{siteKey}:config`
+1. Clear config cache: `Cache::forget("site:{siteKey}:config")`
 
 On full resync:
-1. Clear ALL list caches for the site (all content types)
+1. Increment version counters for ALL content types for the site
 2. Clear config cache
 
-**Important limitation:** For projects and blog list caches that include query parameters (`featured`, `limit`, `page`, `perPage`, `tag`), only the base `list` key is invalidated. Parameterized cache keys (`list:true:3:1:50`) will expire naturally after 1 hour. This is acceptable because content updates are infrequent (~1x per week) and the deploy hook triggers a full site rebuild anyway — the cached parameterized responses will only be stale for at most 1 hour.
+**Why version counters instead of direct cache clearing:** The deploy hook triggers an immediate Cloudflare Pages rebuild, which fetches content from the API within seconds of a sync. If parameterized list cache keys (e.g., `projects:list:true:3:1:50`) are not invalidated, the rebuild will fetch stale data. The version counter approach ensures that every list cache variant is effectively invalidated the moment content changes, without needing tag-aware cache drivers or filesystem iteration. It is fully compatible with Laravel's file-based cache driver on cPanel shared hosting.
 
 ### 12.5 HTTP Cache Headers
 
@@ -2468,6 +2506,8 @@ Public endpoints are rate-limited to prevent abuse:
 
 **Note:** During a Next.js build, each site makes 15-30 API calls. With 60 requests/minute per IP, a single build will never hit the limit. Even if all 3 sites build simultaneously from the same Cloudflare IP, the 60/min limit should be sufficient. If issues arise, increase to 120/min.
 
+**Rate Limit Monitoring:** Log all 429 responses to `laravel.log` with the client IP. If Cloudflare Pages build IPs are consistently hitting rate limits, increase the limit to 120/min or whitelist known Cloudflare builder IP ranges.
+
 ---
 
 ## 15. ERROR HANDLING & EXCEPTION HANDLER
@@ -2481,6 +2521,7 @@ This app ALWAYS returns JSON. No HTML error pages, ever.
 | Missing API key on internal endpoint | 401 | `{"error": "Missing API key"}` |
 | Invalid/inactive API key | 403 | `{"error": "Invalid API key"}` |
 | Content not found (public endpoint) | 404 | `{"error": "Not found"}` |
+| Unknown site_key in URL | 404 | `{"error": "Not found"}` | ValidateSiteKey middleware |
 | Invalid site_key (no matching records) | 404 | `{"error": "Not found"}` |
 | Validation error on sync | 422 | `{"error": "Validation failed", "fields": {...}}` |
 | Validation error on contact form | 422 | `{"error": "Validation failed", "fields": {...}}` |
@@ -2595,6 +2636,7 @@ Laravel default file logging: `storage/logs/laravel.log`
 | Deploy hook failure | ERROR | `laravel.log` + `deploy_logs` table |
 | Deploy hook success | — | `deploy_logs` table only |
 | Unhandled exception | ERROR | `laravel.log` |
+| Rate limit exceeded (429) | WARNING | `laravel.log` (with client IP) |
 | Missing deploy hook config | WARNING | `laravel.log` |
 
 ### 17.3 Database Logging Tables
@@ -2613,7 +2655,7 @@ Laravel default file logging: `storage/logs/laravel.log`
 | Concern | Implementation |
 |:---|:---|
 | HTTPS | Enforced by Cloudflare (api.zeplow.com proxied through orange cloud) |
-| Internal endpoint auth | Bearer API key validated against `api_keys` table |
+| Internal endpoint auth | Bearer API key hashed with SHA-256 and validated against `api_keys` table |
 | Public endpoint protection | Rate limiting (60/min per IP) |
 | Spam protection | Honeypot field on contact form |
 | CORS | Restricted to known frontend domains + localhost |
@@ -2624,9 +2666,10 @@ Laravel default file logging: `storage/logs/laravel.log`
 ### 18.2 API Key Security Rules
 
 - API key is a 64-character random string — treat as a secret
-- Never commit to Git
-- Store in `.env` on both CMS and API servers
-- The API key is NOT hashed (validated via direct string comparison for simplicity)
+- API key is stored as a **SHA-256 hash** in the database. The plaintext key is shown once at generation and cannot be retrieved.
+- Never commit the plaintext key to Git
+- Store the plaintext key in `.env` on both CMS and API servers
+- On each request, the incoming bearer token is hashed with `hash('sha256', $token)` before querying the database — the plaintext key never touches the database
 - If compromised, deactivate in `api_keys` table (`is_active = false`) and generate a new one
 - `last_used_at` is tracked on every authenticated request for auditing
 
@@ -2785,7 +2828,8 @@ api-app/
 │   │   │       ├── SiteTeamController.php        # GET /sites/v1/{siteKey}/team
 │   │   │       └── ContactController.php         # POST /sites/v1/{siteKey}/contact
 │   │   ├── Middleware/
-│   │   │   └── ValidateApiKey.php         # Bearer token validation for internal endpoints
+│   │   │   ├── ValidateApiKey.php         # Bearer token validation for internal endpoints
+│   │   │   └── ValidateSiteKey.php        # Site key whitelist validation for public endpoints
 │   │   └── Kernel.php                     # Middleware registration
 │   ├── Models/
 │   │   ├── SiteContent.php                # Core content model (flat JSON store)
@@ -2855,9 +2899,11 @@ api-app/
 | # | Task | Details | Depends On |
 |:---|:---|:---|:---|
 | 3.1 | Create ValidateApiKey middleware | Bearer token validation against `api_keys` table | 2.7 |
-| 3.2 | Register middleware alias `api_key` | In Kernel.php or bootstrap/app.php | 3.1 |
+| 3.2 | Register middleware aliases `api_key` and `site_key` | In Kernel.php or bootstrap/app.php | 3.1, 3.5 |
 | 3.3 | Create DeployService | Cloudflare deploy hook trigger with logging | 2.7 |
 | 3.4 | Add `services.cloudflare.deploy_hooks` to `config/services.php` | Hook URLs from .env | 1.6 |
+| 3.5 | Create ValidateSiteKey middleware | Whitelist validation for `{siteKey}` route parameter against `['parent', 'narrative', 'logic']` | 1.3 |
+| 3.6 | Implement cache version counter system | Add `Cache::increment` / `Cache::get` version logic to all list cache controllers and ContentSyncController invalidation | 3.3 |
 
 ### Phase 4: Internal Controllers (Days 4–5)
 
@@ -2907,7 +2953,7 @@ api-app/
 | 7.7 | Test: Content sync → deploy hook fires → Cloudflare rebuilds | Full pipeline test | 7.3, 7.5 |
 | 7.8 | Test: Contact form submission → email received | End-to-end contact test | 7.2 |
 | 7.9 | Test: Rate limiting works | 60+ requests in 1 minute → 429 | 7.2 |
-| 7.10 | Test: Honeypot detection works | Submit with website_url filled → fake 200, nothing stored | 7.2 |
+| 7.10 | Test: Honeypot detection works | Submit with fax_number filled → fake 200, nothing stored | 7.2 |
 
 ---
 
@@ -2950,7 +2996,7 @@ api-app/
 | POST /sites/v1/narrative/contact with valid data | Returns 200, email sent, stored in DB | ☐ |
 | POST /sites/v1/narrative/contact with missing name | Returns 422 with validation errors | ☐ |
 | POST /sites/v1/narrative/contact with invalid email | Returns 422 with validation errors | ☐ |
-| POST /sites/v1/narrative/contact with honeypot filled | Returns fake 200, nothing stored | ☐ |
+| POST /sites/v1/narrative/contact with honeypot (`fax_number`) filled | Returns fake 200, nothing stored | ☐ |
 
 ### 25.4 Cache & Performance Tests
 
@@ -2967,6 +3013,7 @@ api-app/
 |:---|:---|:---|
 | Hit rate limit (60+ requests/minute) | Returns 429 | ☐ |
 | Internal endpoint ignores rate limit | No 429 regardless of request count | ☐ |
+| Trigger simultaneous builds for all 3 sites | None of the 3 builds receive 429 responses | ☐ |
 
 ### 25.6 Deploy Hook Tests
 
