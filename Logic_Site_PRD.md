@@ -1,10 +1,10 @@
 # ZEPLOW LOGIC SITE (logic.zeplow.com) — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** March 27, 2026
 **Derived From:** Zeplow Platform Central PRD v1.1, Tech Business Brand Document, Company Profile
 **Original Author:** Shakib Bin Kabir
-**Status:** Final — Ready for Implementation
+**Status:** Final — Ready for Implementation (v1.1: Architect review fixes applied)
 
 ---
 
@@ -91,6 +91,13 @@ From the brand document — the **Ideal Customer Profile**:
 - Job listings system
 - E-commerce or payment processing
 - Hourly billing calculator or public pricing page (pricing is consultation-based)
+
+### 1.6 Known Limitations
+
+- **No content versioning** — The CMS does not support content versioning in V1. Rollback requires manual CMS intervention (restore from database backup or re-enter content).
+- **No offline/service worker support** — No Progressive Web App (PWA) capabilities in V1. The site requires an active internet connection.
+- **Image optimization relies on Spatie conversions + Cloudflare CDN** — There is no build-time or edge-side image processing. All optimization happens via pre-generated Spatie MediaLibrary conversions cached by Cloudflare's CDN.
+- **Project volume and pagination** — The Logic site launches with 17 projects (more than Narrative or Parent). The `/work` grid handles this without pagination at launch, but when project count exceeds 12, ensure the grid renders performantly. A "Load More" pattern should be implemented when project count exceeds 24.
 
 ---
 
@@ -546,6 +553,14 @@ const projects = await getProjects('logic');
 
 **Renders:** Grid of `ProjectCard` components. Each card shows: title, one_liner, industry, featured badge, first image. Links to `/work/{slug}`.
 
+**Project Volume Considerations:**
+
+Logic launches with 17 projects (more than Narrative or Parent). The following rules apply:
+
+- The `/work` grid should display all projects without pagination at launch (17 items), but implement a "Load More" pattern when project count exceeds 24.
+- Project cards should use the `medium` image conversion (800×600) to keep page weight manageable with 17+ cards.
+- **Target:** `/work` grid initial page load < 2.5 MB including all project card images.
+
 **Implementation:**
 
 ```typescript
@@ -764,6 +779,33 @@ Same `ContentRenderer` component as all sites. Maps block `type` to React compon
 | `testimonials` | Clean, no decorative quotes. Feels like a system status report. |
 | `projects` | Grid cards with industry tag, tech stack pills visible |
 
+### 9.1 Responsive Image Strategy
+
+Since Next.js static export uses `unoptimized: true`, the Logic site cannot rely on Next.js Image Optimization. Instead, all images must use **Spatie MediaLibrary conversions** explicitly, requesting the appropriate pre-generated size from the API.
+
+**Conversion mapping by context:**
+
+| Context | Conversion | Dimensions | Example |
+|:---|:---|:---|:---|
+| Hero images and full-width backgrounds | `large` | 1920×1080 | Home hero, page heroes |
+| Project cards on `/work` grid | `medium` | 800×600 | `ProjectCard` thumbnail |
+| Incident Report inline images/screenshots | `medium` | 800×600 | Evidence section images |
+| Blog cover images | `medium` | 800×600 | `/insights` listing cards, post hero |
+| Team photos | `thumbnail` | 300×300 | About page team grid |
+
+**API client integration:** The shared API client's image helper should accept a `conversion` parameter:
+
+```typescript
+// Example usage
+getImageUrl(image, 'medium')   // → returns the 800x600 conversion URL
+getImageUrl(image, 'large')    // → returns the 1920x1080 conversion URL
+getImageUrl(image, 'thumbnail') // → returns the 300x300 conversion URL
+```
+
+**HTML requirements:** All `<img>` tags must include `width`, `height`, `alt`, and `loading="lazy"` attributes. Above-the-fold images (hero images, first visible project card) use `loading="eager"` instead.
+
+**Logic-specific note:** Since Logic's visual identity favors schematics and architecture diagrams over photography, consider serving these as SVG where possible (uploaded to CMS as SVG files) for crisp rendering at any size without conversion overhead.
+
 ---
 
 ## 10. CONTACT FORM
@@ -883,6 +925,10 @@ Same as parent — Cloudflare clones monorepo, installs deps, runs `next build` 
 | Content change | CMS publish → API sync → API fires `CF_DEPLOY_HOOK_LOGIC` → Cloudflare rebuilds |
 | Code change | Push to `main` → Cloudflare auto-builds |
 | Manual | Cloudflare Pages dashboard |
+
+### 13.5 Concurrent Build Rate Limit Warning
+
+If all 3 sites rebuild simultaneously (e.g., after a shared config change in the CMS), the combined API requests from Cloudflare's build infrastructure may approach the 60 req/min rate limit. Monitor `deploy_logs` for failed builds caused by `429` errors. If this occurs, coordinate with the API team to increase the rate limit to 120/min or whitelist Cloudflare builder IPs.
 
 ---
 
@@ -1039,6 +1085,7 @@ apps/logic/
 │   │       └── page.tsx               # Blog post detail (/insights/[slug])
 │   ├── contact/
 │   │   └── page.tsx                   # Contact form (/contact)
+│   ├── not-found.tsx                  # Custom 404 page (Logic branding)
 │   ├── sitemap.ts                     # Dynamic sitemap (pages + projects + blog)
 │   └── robots.ts
 ├── components/                        # Logic-site-specific components
@@ -1053,6 +1100,7 @@ apps/logic/
 │   │   └── Inter-Bold.woff2
 │   ├── robots.txt
 │   ├── _headers
+│   ├── 404.html                       # Static 404 fallback for Cloudflare Pages
 │   ├── favicon.ico
 │   ├── logo.png
 │   └── og-default.jpg
@@ -1068,6 +1116,22 @@ apps/logic/
 ## 19. ERROR HANDLING
 
 Same as parent site. Build-time failures keep the previous deploy live. Runtime errors in the contact form show friendly fallback messages. Broken image URLs show alt text. Site is fully functional without JavaScript except the contact form.
+
+### 19.1 Custom Error Pages
+
+**404 Page — `apps/logic/app/not-found.tsx`**
+
+Create a custom `not-found.tsx` with Logic branding:
+
+- **Heading:** `// 404: Resource not found` rendered in JetBrains Mono (monospace), maintaining the technical/code aesthetic
+- **Accent:** System Teal `#00b894` for any highlighted elements
+- **Tone:** Clinical and on-brand — e.g., "The resource you requested does not exist in this system. It may have been removed, renamed, or never deployed."
+- **Navigation and footer:** Include full site navigation and footer from `getSiteConfig('logic')` (inherited from root layout)
+- **Links:** Include a "Return to Home" button and links to `/work` and `/contact`
+
+**Static 404 fallback — `apps/logic/public/404.html`**
+
+Create a `404.html` fallback for Cloudflare Pages. This is a static HTML file (no React) that Cloudflare serves when no matching route exists. It should mirror the design of `not-found.tsx` as closely as possible with inline styles.
 
 ---
 
@@ -1173,6 +1237,9 @@ Same as parent site. Build-time failures keep the previous deploy live. Runtime 
 | `/services` loads | 3 engagement types + 8 service categories | ☐ |
 | `/work` loads | Project grid with all published projects | ☐ |
 | `/work/{slug}` loads | Incident Report with challenge/solution/outcome | ☐ |
+| `/work/{slug}` renders all 5 Incident Report sections | Verify: Subject line, Bottleneck (challenge), Prescription (solution), Outcome, Evidence (images/tech stack) | ☐ |
+| `/work/{slug}` tech_stack renders as inline pills/tags | Tags display as styled pill elements, not plain text | ☐ |
+| `/work/{slug}` images lazy-load below the fold | Evidence section images use `loading="lazy"`, above-fold images use `loading="eager"` | ☐ |
 | `/process` loads | 6-step workflow | ☐ |
 | `/insights` loads | Blog post grid | ☐ |
 | `/insights/{slug}` loads | Full blog post with body HTML | ☐ |
@@ -1188,6 +1255,7 @@ Same as parent site. Build-time failures keep the previous deploy live. Runtime 
 | CTA buttons use System Teal `#00b894` | Not Vibrant Coral | ☐ |
 | Incident Report layout renders correctly | Subject → Bottleneck → Solution → Outcome → Evidence | ☐ |
 | Tech stack pills visible on project cards and detail | Tags render as inline pills | ☐ |
+| Font loading failure fallback | Block font files in DevTools → verify monospace fallback (for headings) and system-ui fallback (for body) render correctly without breaking layout | ☐ |
 
 ### 21.4 SEO Tests
 
@@ -1198,6 +1266,7 @@ Same as parent site. Build-time failures keep the previous deploy live. Runtime 
 | Blog posts have ArticleSchema | Valid JSON-LD | ☐ |
 | `/sitemap.xml` accessible | Valid XML with pages + projects + blog | ☐ |
 | `/robots.txt` accessible | Correct content | ☐ |
+| JSON-LD validates via Google Rich Results Test | OrganizationSchema and ArticleSchema have no errors | ☐ |
 
 ### 21.5 Contact Form Tests
 
