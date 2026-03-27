@@ -1,34 +1,33 @@
 # ZEPLOW PLATFORM — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.1
-**Date:** March 11, 2026
+**Version:** 1.2
+**Date:** March 27, 2026
 **Author:** Shakib Bin Kabir
-**Status:** Final — Ready for Implementation
+**Status:** Final — Ready for Implementation (Architect Review Applied)
 
 ---
 
 ## TABLE OF CONTENTS
 
-1. Project Overview
+1. Project Overview (includes Known Limitations)
 2. System Architecture
 3. App 1: CMS (cms.zeplow.com)
-4. App 2: API (api.zeplow.com)
-5. App 3: Frontend — Monorepo (3 Next.js Sites)
+4. App 2: API (api.zeplow.com) (includes Site Key Validation Middleware)
+5. App 3: Frontend — Monorepo (3 Next.js Sites) (includes Image Optimization Strategy)
 6. Database Schemas
-7. API Contracts
-8. CMS → API Sync System
-9. Build & Deploy Pipeline
-10. Authentication & Security
-11. Caching Strategy
-12. Error Handling & Logging
-13. SEO Requirements
-14. Performance Requirements
-15. DNS & Domain Configuration
-16. Environment Variables
-17. Third-Party Services
-18. Implementation Order
-19. Testing Checklist
-20. Post-Launch Checklist
+7. CMS → API Sync System
+8. Build & Deploy Pipeline
+9. Authentication & Security (API key hashing)
+10. Caching Strategy (prefix-based cache invalidation)
+11. Error Handling & Logging (includes Monitoring & Alerting)
+12. SEO Requirements
+13. Performance Requirements
+14. DNS & Domain Configuration
+15. Environment Variables
+16. Third-Party Services
+17. Implementation Order
+18. Testing Checklist
+19. Post-Launch Checklist (includes Backup Strategy)
 
 ---
 
@@ -75,6 +74,14 @@ Plus two backend applications:
 - Analytics dashboard in Filament
 - ERP, billing, or any future API scopes (API structure supports them, but we don't build them now)
 - Mobile apps
+
+### 1.4 Known Limitations (V1)
+
+| Limitation | Impact | Future Improvement |
+|:---|:---|:---|
+| **No content versioning or rollback** | If incorrect content is published, the only recovery is to manually edit it back in the CMS. There is no undo, no revision history, and no diff view. | Add a `content_versions` table in the CMS that stores a JSON snapshot of each model's data on every save, with a "Restore to version" action in Filament. |
+| **No draft preview** | Editors cannot preview unpublished content on the live frontend. They must publish to see how it looks. | Add a preview mode that fetches draft content from the CMS directly (bypassing the API). |
+| **Single-region hosting** | CMS and API are hosted on a single cPanel server. If the server goes down, new content cannot be published (but live sites remain up via Cloudflare CDN). | Migrate to a managed cloud provider with multi-region support if uptime SLA is needed. |
 
 ---
 
@@ -354,9 +361,11 @@ Each page's `content` field is a Filament Repeater with a Block type selector. E
 | linkedin | TextInput (url) | nullable | LinkedIn profile URL |
 | email | TextInput (email) | nullable | Contact email |
 | is_founder | Toggle | default: false | Distinguish founders from team |
+| is_published | Toggle | default: true | Controls visibility — only published team members are synced to API and shown on frontend |
 | sort_order | TextInput (numeric) | default: 0 | Display order |
 
-**Table Columns:** name, role, site.name, is_founder, sort_order
+**Table Columns:** name, role, site.name, is_founder, is_published, sort_order
+**Table Filters:** site_id, is_published
 
 #### 3.4.7 SiteConfigResource
 
@@ -473,7 +482,50 @@ This app must boot fast. Strip everything unnecessary:
 
 Nothing else. The API app has two jobs: store content and serve JSON.
 
-### 4.4 API Route Structure
+### 4.4 Site Key Validation (Middleware)
+
+All public endpoints under `/sites/v1/{siteKey}/*` must validate `{siteKey}` against an allowed whitelist **before** any database query, cache lookup, or controller logic executes. This prevents caching empty results for garbage site keys and avoids unnecessary database load.
+
+**Allowed site keys:** `['parent', 'narrative', 'logic']`
+
+If the `{siteKey}` is not in the allowed list, the middleware must immediately return a `404` response with `{"error": "Site not found"}` — no further processing occurs.
+
+```php name=api-app/app/Http/Middleware/ValidateSiteKey.php
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+
+class ValidateSiteKey
+{
+    private const ALLOWED_SITE_KEYS = ['parent', 'narrative', 'logic'];
+
+    public function handle(Request $request, Closure $next)
+    {
+        $siteKey = $request->route('siteKey');
+
+        if (!in_array($siteKey, self::ALLOWED_SITE_KEYS, true)) {
+            return response()->json(['error' => 'Site not found'], 404);
+        }
+
+        return $next($request);
+    }
+}
+```
+
+This middleware must be registered on all `/sites/v1/{siteKey}/*` route groups in `routes/api.php`:
+
+```php
+Route::prefix('sites/v1/{siteKey}')
+    ->middleware(['throttle:60,1', ValidateSiteKey::class])
+    ->group(function () {
+        // All public site endpoints...
+    });
+```
+
+### 4.5 API Route Structure
 
 ```
 api.zeplow.com/
@@ -501,9 +553,9 @@ api.zeplow.com/
     └── GET /                         ← Returns { status: "ok", timestamp: "..." }
 ```
 
-### 4.5 API Controller Specifications
+### 4.6 API Controller Specifications
 
-#### 4.5.1 Public Endpoints — SiteConfigController
+#### 4.6.1 Public Endpoints — SiteConfigController
 
 **GET `/sites/v1/{siteKey}/config`**
 
@@ -546,7 +598,7 @@ Response:
 
 Cache: 1 hour. Headers: `Cache-Control: public, max-age=3600`
 
-#### 4.5.2 Public Endpoints — SitePageController
+#### 4.6.2 Public Endpoints — SitePageController
 
 **GET `/sites/v1/{siteKey}/pages`**
 
@@ -637,7 +689,7 @@ Response:
 
 Cache: 1 hour.
 
-#### 4.5.3 Public Endpoints — SiteProjectController
+#### 4.6.3 Public Endpoints — SiteProjectController
 
 **GET `/sites/v1/{siteKey}/projects`**
 
@@ -645,7 +697,7 @@ Query parameters:
 - `featured=true` (optional) — filter to featured only
 - `limit=6` (optional) — limit results (returns simple array, no pagination meta)
 - `page=1` (optional) — page number for pagination
-- `per_page=50` (optional) — items per page (default 50)
+- `per_page=50` (optional) — items per page (default 50). *Projects are lightweight list items (title, one-liner, tags) with no heavy text fields, so a larger default page size is appropriate.*
 
 Response (with limit parameter — simple array, backwards compatible):
 ```json
@@ -729,7 +781,7 @@ Response:
 
 Cache: 1 hour.
 
-#### 4.5.4 Public Endpoints — SiteBlogController
+#### 4.6.4 Public Endpoints — SiteBlogController
 
 **GET `/sites/v1/{siteKey}/blog`**
 
@@ -737,7 +789,7 @@ Query parameters:
 - `tag=branding` (optional)
 - `limit=10` (optional) — limit results (returns simple array, no pagination meta)
 - `page=1` (optional) — page number for pagination
-- `per_page=20` (optional) — items per page (default 20)
+- `per_page=20` (optional) — items per page (default 20). *Blog posts include excerpts and heavier metadata, so a smaller default page size keeps response payloads fast.*
 
 Response (with limit parameter — simple array):
 ```json
@@ -804,7 +856,7 @@ Response:
 
 Cache: 1 hour.
 
-#### 4.5.5 Public Endpoints — SiteTestimonialController
+#### 4.6.5 Public Endpoints — SiteTestimonialController
 
 **GET `/sites/v1/{siteKey}/testimonials`**
 
@@ -825,9 +877,11 @@ Response:
 
 Cache: 1 hour.
 
-#### 4.5.6 Public Endpoints — SiteTeamController
+#### 4.6.6 Public Endpoints — SiteTeamController
 
 **GET `/sites/v1/{siteKey}/team`**
+
+**Visibility rule:** Only team members where `is_published = true` are synced from the CMS to the API. The API returns all synced team members — no additional filtering is needed at the API level because unpublished team members are never present in `api_zeplow`.
 
 Response:
 ```json
@@ -859,7 +913,7 @@ Response:
 
 Cache: 1 hour.
 
-#### 4.5.7 Public Endpoints — ContactController
+#### 4.6.7 Public Endpoints — ContactController
 
 **POST `/sites/v1/{siteKey}/contact`**
 
@@ -885,7 +939,7 @@ Response:
 
 **Spam protection:** Honeypot field (`website_url`). If the hidden field is filled by a bot, the API returns a fake success response without storing or emailing.
 
-#### 4.5.8 Health Check
+#### 4.6.8 Health Check
 
 **GET `/health`**
 
@@ -1139,7 +1193,61 @@ const nextConfig = {
 module.exports = nextConfig
 ```
 
-### 5.4 Shared API Client
+### 5.4 Image Optimization Strategy
+
+Since Next.js static export uses `unoptimized: true` (no built-in `next/image` optimization), the frontend must rely on Spatie MediaLibrary conversions generated by the CMS for properly sized images. Each image uploaded to the CMS generates three conversions:
+
+| Conversion | Dimensions | Use Case |
+|:---|:---|:---|
+| `thumbnail` | 300×300 | Card thumbnails, grid items, avatar-sized images |
+| `medium` | 800×600 | List page images, blog listing cover images |
+| `large` | 1920×1080 | Hero sections, project detail hero images, full-width images |
+
+**URL pattern for Spatie conversions:**
+```
+https://cms.zeplow.com/storage/{path}/conversions/{filename}-{conversion}.jpg
+```
+
+Example:
+- Original: `https://cms.zeplow.com/storage/projects/tututor-1.jpg`
+- Thumbnail: `https://cms.zeplow.com/storage/projects/conversions/tututor-1-thumbnail.jpg`
+- Medium: `https://cms.zeplow.com/storage/projects/conversions/tututor-1-medium.jpg`
+- Large: `https://cms.zeplow.com/storage/projects/conversions/tututor-1-large.jpg`
+
+**API client helper:** The `@zeplow/api` package should include a helper function to build the correct image URL for a given conversion:
+
+```typescript name=packages/api/src/image.ts
+/**
+ * Build a Spatie media conversion URL from an original image URL.
+ *
+ * @param originalUrl - The original image URL from the API (e.g., https://cms.zeplow.com/storage/projects/tututor-1.jpg)
+ * @param conversion - The desired conversion: 'thumbnail', 'medium', or 'large'
+ * @returns The conversion URL, or the original URL if conversion cannot be derived
+ */
+export function getImageUrl(
+  originalUrl: string,
+  conversion?: 'thumbnail' | 'medium' | 'large'
+): string {
+  if (!conversion || !originalUrl) return originalUrl;
+
+  // Insert /conversions/ before the filename and append -{conversion}
+  const lastSlash = originalUrl.lastIndexOf('/');
+  const path = originalUrl.substring(0, lastSlash);
+  const filename = originalUrl.substring(lastSlash + 1);
+  const nameWithoutExt = filename.substring(0, filename.lastIndexOf('.'));
+  const ext = filename.substring(filename.lastIndexOf('.'));
+
+  return `${path}/conversions/${nameWithoutExt}-${conversion}${ext}`;
+}
+```
+
+**Usage guidelines for frontend developers:**
+- **Card components** (ProjectCard, BlogCard, TeamCard): Use `thumbnail` or `medium` conversion
+- **List pages** (portfolio grid, blog listing): Use `medium` conversion
+- **Hero sections and detail pages**: Use `large` conversion
+- **Fallback**: If a conversion URL 404s (e.g., conversion failed), fall back to the original URL
+
+### 5.5 Shared API Client
 
 ```typescript name=packages/api/src/types.ts
 // All TypeScript interfaces for API responses
@@ -1349,9 +1457,10 @@ export function getTeamMembers(siteKey: string): Promise<TeamMember[]> {
 ```typescript name=packages/api/src/index.ts
 export * from './client';
 export * from './types';
+export * from './image';
 ```
 
-### 5.5 Shared Configuration
+### 5.6 Shared Configuration
 
 ```typescript name=packages/config/src/colors.ts
 export const colors = {
@@ -1394,7 +1503,7 @@ export const fonts = {
 } as const;
 ```
 
-### 5.6 Content Renderer (Critical Shared Component)
+### 5.7 Content Renderer (Critical Shared Component)
 
 ```typescript name=packages/ui/src/ContentRenderer.tsx
 import type { ContentBlock } from '@zeplow/api';
@@ -1450,7 +1559,7 @@ const blockComponents: Record<string, React.ComponentType<any>> = {
 };
 ```
 
-### 5.7 Page Structure (How Each Page Works)
+### 5.8 Page Structure (How Each Page Works)
 
 Every page in every site follows the same pattern:
 
@@ -1527,7 +1636,7 @@ export default async function ProjectPage({ params }: { params: { slug: string }
 }
 ```
 
-### 5.8 Root Layout Pattern
+### 5.9 Root Layout Pattern
 
 ```typescript name=apps/narrative/app/layout.tsx
 import { getSiteConfig } from '@zeplow/api';
@@ -1567,7 +1676,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 }
 ```
 
-### 5.9 Contact Form Handling
+### 5.10 Contact Form Handling
 
 The contact form on each site submits to the API with honeypot spam protection:
 
@@ -1661,7 +1770,7 @@ export function ContactForm({ siteKey, siteDomain }: ContactFormProps) {
 }
 ```
 
-### 5.10 Pages Per Site (Complete List)
+### 5.11 Pages Per Site (Complete List)
 
 **zeplow.com (parent) — 8 routes:**
 
@@ -1841,6 +1950,7 @@ CREATE TABLE team_members (
     linkedin VARCHAR(500) NULL,
     email VARCHAR(255) NULL,
     is_founder BOOLEAN NOT NULL DEFAULT FALSE,
+    is_published BOOLEAN NOT NULL DEFAULT TRUE,
     sort_order INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NULL,
     updated_at TIMESTAMP NULL,
@@ -1958,17 +2068,20 @@ CREATE TABLE deploy_logs (
 );
 
 -- API Keys (for CMS → API authentication)
+-- IMPORTANT: The `key_hash` column stores a SHA-256 hash of the API key, NOT the plaintext key.
+-- The plaintext key is shown ONCE at generation time (like GitHub personal access tokens) and never stored.
 CREATE TABLE api_keys (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    `key` VARCHAR(64) NOT NULL UNIQUE,
+    key_hash VARCHAR(64) NOT NULL UNIQUE COMMENT 'SHA-256 hash of the API key',
+    key_prefix VARCHAR(8) NOT NULL COMMENT 'First 8 chars of the key for identification (e.g., "zplw_a1b...")',
     scope VARCHAR(50) NOT NULL DEFAULT 'internal',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     last_used_at TIMESTAMP NULL,
     created_at TIMESTAMP NULL,
     updated_at TIMESTAMP NULL,
 
-    INDEX idx_key_active (`key`, is_active)
+    INDEX idx_key_hash_active (key_hash, is_active)
 );
 
 -- Future tables (structure reserved, not created now):
@@ -2029,11 +2142,17 @@ class SyncContentJob implements ShouldQueue
     public int $tries = 3;
     public int $backoff = 5;
 
+    /**
+     * IMPORTANT: The sync_log_id is created BEFORE dispatch (in SyncService)
+     * and passed to the job. This prevents orphaned "pending" log entries
+     * on retries — every retry updates the SAME sync_log record.
+     */
     public function __construct(
         private string $siteKey,
         private string $contentType,
         private string $slug,
         private array $data,
+        private int $syncLogId,
         private ?string $publishedAt = null,
     ) {}
 
@@ -2042,12 +2161,7 @@ class SyncContentJob implements ShouldQueue
         $apiUrl = config('services.zeplow_api.url');
         $apiKey = config('services.zeplow_api.key');
 
-        $log = SyncLog::create([
-            'site_key'     => $this->siteKey,
-            'content_type' => $this->contentType,
-            'content_slug' => $this->slug,
-            'status'       => 'pending',
-        ]);
+        $log = SyncLog::findOrFail($this->syncLogId);
 
         try {
             $response = Http::timeout(30)
@@ -2229,15 +2343,27 @@ namespace App\Services;
 use App\Jobs\SyncContentJob;
 use App\Jobs\SyncConfigJob;
 use App\Jobs\DeleteContentJob;
+use App\Models\SyncLog;
 
 class SyncService
 {
     /**
      * Dispatch a content sync job (non-blocking with async queue, immediate with sync queue).
+     *
+     * IMPORTANT: The sync_log entry is created HERE (before dispatch), not inside the job.
+     * This ensures that retries update the SAME log record instead of creating orphaned
+     * "pending" entries on each retry attempt.
      */
     public function syncContent(string $siteKey, string $contentType, string $slug, array $data, ?string $publishedAt = null): void
     {
-        SyncContentJob::dispatch($siteKey, $contentType, $slug, $data, $publishedAt);
+        $log = SyncLog::create([
+            'site_key'     => $siteKey,
+            'content_type' => $contentType,
+            'content_slug' => $slug,
+            'status'       => 'pending',
+        ]);
+
+        SyncContentJob::dispatch($siteKey, $contentType, $slug, $data, $log->id, $publishedAt);
     }
 
     /**
@@ -2359,9 +2485,9 @@ class ProjectObserver
 ```
 
 **The same Observer pattern applies to:**
-- `BlogPostObserver` (type: `blog_post`)
-- `TestimonialObserver` (type: `testimonial`)
-- `TeamMemberObserver` (type: `team_member`)
+- `BlogPostObserver` (type: `blog_post`) — syncs only when `is_published` is true
+- `TestimonialObserver` (type: `testimonial`) — syncs only when `is_published` is true
+- `TeamMemberObserver` (type: `team_member`) — syncs only when `is_published` is true (consistent with all other content types). When `is_published` is toggled to false, the observer calls `deleteContent` to remove the team member from the API.
 - `SiteConfigObserver` (calls `syncConfig` instead of `syncContent`)
 
 ### 7.5 Observer Registration
@@ -2456,8 +2582,8 @@ class ResyncAllAction
                     $total++;
                 }
 
-                // Sync all team members
-                foreach ($site->teamMembers()->get() as $member) {
+                // Sync all published team members
+                foreach ($site->teamMembers()->where('is_published', true)->get() as $member) {
                     $member->touch();
                     $total++;
                 }
@@ -2615,10 +2741,50 @@ When Cloudflare Pages builds a site:
 | Concern | Implementation |
 |:---|:---|
 | Auth method | Bearer token (API key) |
-| Key storage | `api_keys` table in DB #2 |
+| Key storage | `api_keys` table in DB #2 — **stores SHA-256 hash only, never the plaintext key** |
 | Key format | 64-character random string (generated via `Str::random(64)`) |
+| Key hashing | `hash('sha256', $key)` — stored in `key_hash` column |
+| Key display | The plaintext key is shown **only once** at generation time (like GitHub personal access tokens). It cannot be recovered after that. |
+| Key identification | First 8 characters stored in `key_prefix` for identification in admin UI (e.g., `zplw_a1b...`) |
 | Header | `Authorization: Bearer {api_key}` |
-| Validation | Middleware checks key exists, is active, and scope matches |
+| Validation | Middleware hashes the incoming bearer token with SHA-256, then checks the hash exists, is active, and scope matches |
+
+**API Key Generation (Artisan Command):**
+
+```php name=api-app/app/Console/Commands/GenerateApiKey.php
+<?php
+
+namespace App\Console\Commands;
+
+use App\Models\ApiKey;
+use Illuminate\Console\Command;
+use Illuminate\Support\Str;
+
+class GenerateApiKey extends Command
+{
+    protected $signature = 'api-key:generate {name} {--scope=internal}';
+    protected $description = 'Generate a new API key (shown once, then only the hash is stored)';
+
+    public function handle(): void
+    {
+        $plaintext = Str::random(64);
+
+        ApiKey::create([
+            'name'       => $this->argument('name'),
+            'key_hash'   => hash('sha256', $plaintext),
+            'key_prefix' => substr($plaintext, 0, 8),
+            'scope'      => $this->option('scope'),
+            'is_active'  => true,
+        ]);
+
+        $this->warn('⚠️  Copy this key now — it will NOT be shown again:');
+        $this->info($plaintext);
+        $this->info('Store this in the CMS .env file as ZEPLOW_API_KEY.');
+    }
+}
+```
+
+**ValidateApiKey Middleware:**
 
 ```php name=api-app/app/Http/Middleware/ValidateApiKey.php
 <?php
@@ -2639,7 +2805,10 @@ class ValidateApiKey
             return response()->json(['error' => 'Missing API key'], 401);
         }
 
-        $apiKey = ApiKey::where('key', $token)
+        // Hash the incoming token and compare against stored hash
+        $tokenHash = hash('sha256', $token);
+
+        $apiKey = ApiKey::where('key_hash', $tokenHash)
             ->where('is_active', true)
             ->where('scope', $scope)
             ->first();
@@ -2959,7 +3128,67 @@ class SiteBlogController extends Controller
 
 ### 10.2 Cache Invalidation
 
-When the API receives synced content, it must clear the relevant cache using a proper mapping from content_type to cache prefix:
+When the API receives synced content, it must clear **all** relevant caches — including parameterized list query variants. The base `Cache::forget("site:{$siteKey}:{$prefix}:list")` alone is insufficient because parameterized cache keys like `list:true:3:1:50` (for featured/limit/page/perPage variations) survive until TTL expiry. Since the deploy hook triggers an immediate Cloudflare rebuild, the build would fetch stale cached data.
+
+**Solution:** Use prefix-based cache flushing via the file cache store. A `CacheService` scans the cache directory for keys matching the pattern and deletes all variants.
+
+```php name=api-app/app/Services/CacheService.php
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\File;
+
+class CacheService
+{
+    /**
+     * Flush all cache keys matching a given prefix.
+     * This clears both the base list key AND all parameterized variants
+     * (e.g., list:true:3:1:50, list:false:0:2:20, etc.).
+     *
+     * Works with the file cache driver by scanning cache files.
+     * If migrating to Redis in the future, replace with Cache::getRedis()->keys("prefix*").
+     */
+    public function flushByPrefix(string $prefix): void
+    {
+        $cachePath = config('cache.stores.file.path', storage_path('framework/cache/data'));
+        $cachePrefix = config('cache.prefix', 'zeplow_api');
+
+        // For file-based cache, iterate through cache files and clear matching entries.
+        // This is acceptable for our scale (~10-20 cache keys per content type per site).
+        $fullPrefix = $cachePrefix . ':' . $prefix;
+
+        // Clear exact match and known patterns
+        Cache::forget($prefix);
+
+        // Scan file cache store for matching keys
+        $this->clearFileCacheByPrefix($cachePath, $fullPrefix);
+    }
+
+    private function clearFileCacheByPrefix(string $path, string $prefix): void
+    {
+        if (!File::isDirectory($path)) {
+            return;
+        }
+
+        foreach (File::allFiles($path) as $file) {
+            try {
+                $contents = File::get($file->getPathname());
+                // File cache stores serialized data with the key embedded
+                if (str_contains($contents, $prefix)) {
+                    File::delete($file->getPathname());
+                }
+            } catch (\Exception $e) {
+                // Skip unreadable files
+                continue;
+            }
+        }
+    }
+}
+```
+
+**ContentSyncController (updated with prefix-based cache flush):**
 
 ```php name=api-app/app/Http/Controllers/Internal/ContentSyncController.php
 <?php
@@ -2968,6 +3197,7 @@ namespace App\Http\Controllers\Internal;
 
 use App\Http\Controllers\Controller;
 use App\Models\SiteContent;
+use App\Services\CacheService;
 use App\Services\DeployService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -2986,7 +3216,10 @@ class ContentSyncController extends Controller
         'team_member' => 'team',
     ];
 
-    public function __construct(private DeployService $deployService) {}
+    public function __construct(
+        private DeployService $deployService,
+        private CacheService $cacheService,
+    ) {}
 
     public function sync(Request $request)
     {
@@ -3012,14 +3245,17 @@ class ContentSyncController extends Controller
             ]
         );
 
-        // Clear relevant caches using the correct prefix
+        // Clear ALL relevant caches — individual slug key + ALL list variants
         $siteKey     = $validated['site_key'];
         $type        = $validated['content_type'];
         $slug        = $validated['slug'];
         $cachePrefix = self::TYPE_TO_CACHE_PREFIX[$type] ?? $type . 's';
 
-        Cache::forget("site:{$siteKey}:{$cachePrefix}:list");
+        // Flush the specific item cache
         Cache::forget("site:{$siteKey}:{$cachePrefix}:{$slug}");
+
+        // Flush ALL list variants (base + parameterized: list, list:true:3:1:50, etc.)
+        $this->cacheService->flushByPrefix("site:{$siteKey}:{$cachePrefix}:list");
 
         // Trigger deploy
         $this->deployService->trigger($siteKey, 'content_sync');
@@ -3048,8 +3284,8 @@ class ContentSyncController extends Controller
         $cachePrefix = self::TYPE_TO_CACHE_PREFIX[$validated['content_type']]
             ?? $validated['content_type'] . 's';
 
-        Cache::forget("site:{$validated['site_key']}:{$cachePrefix}:list");
         Cache::forget("site:{$validated['site_key']}:{$cachePrefix}:{$validated['slug']}");
+        $this->cacheService->flushByPrefix("site:{$validated['site_key']}:{$cachePrefix}:list");
 
         $this->deployService->trigger($validated['site_key'], 'content_delete');
 
@@ -3057,6 +3293,8 @@ class ContentSyncController extends Controller
     }
 }
 ```
+
+> **Note:** If the API migrates to Redis in the future, replace `CacheService` with `Redis::del(Redis::keys("site:{$siteKey}:{$prefix}:list*"))` for a simpler and more performant wildcard flush.
 
 ### 10.3 Cache Configuration
 
@@ -3229,6 +3467,115 @@ class ContactController extends Controller
 **API App:** Laravel default file logging. Deploy results in `deploy_logs` table. Contact submissions in `contact_submissions` table.
 
 **Frontend:** No server-side logging (static site). Client-side errors visible in browser console only.
+
+### 11.6 Monitoring & Alerting
+
+| Monitor | Tool | Frequency | Alert Method |
+|:---|:---|:---|:---|
+| API health check | UptimeRobot (free tier) | Every 5 minutes | Email to shakib@zeplow.com |
+| Failed sync log check | CMS Artisan command | Weekly (cron) | Log + Filament dashboard widget |
+| Failed deploy log check | API Artisan command | Weekly (cron) | Log + email if failures found |
+| Cloudflare Pages build failures | Cloudflare Pages notifications | On failure | Email (Cloudflare built-in) |
+
+**UptimeRobot Setup:**
+- Monitor URL: `https://api.zeplow.com/health`
+- Check interval: 5 minutes
+- Alert contacts: shakib@zeplow.com, shadman@zeplow.com
+- Expected response: HTTP 200 with `{"status": "ok"}`
+
+**CMS: Weekly Sync Failure Check (Artisan Command):**
+
+```php name=cms-app/app/Console/Commands/CheckFailedSyncs.php
+<?php
+
+namespace App\Console\Commands;
+
+use App\Models\SyncLog;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+
+class CheckFailedSyncs extends Command
+{
+    protected $signature = 'monitor:check-failed-syncs';
+    protected $description = 'Check for failed sync_log entries in the past week and alert if found';
+
+    public function handle(): void
+    {
+        $failedCount = SyncLog::where('status', 'failed')
+            ->where('created_at', '>=', now()->subWeek())
+            ->count();
+
+        if ($failedCount > 0) {
+            $message = "⚠️ {$failedCount} failed sync(s) in the past week. Check sync_logs table in cms_zeplow.";
+            Log::warning($message);
+
+            Mail::raw($message, function ($mail) use ($failedCount) {
+                $mail->to('shakib@zeplow.com')
+                    ->subject("Zeplow CMS: {$failedCount} failed sync(s) this week");
+            });
+
+            $this->warn($message);
+        } else {
+            $this->info('No failed syncs in the past week.');
+        }
+    }
+}
+```
+
+**API: Weekly Deploy Failure Check (Artisan Command):**
+
+```php name=api-app/app/Console/Commands/CheckFailedDeploys.php
+<?php
+
+namespace App\Console\Commands;
+
+use App\Models\DeployLog;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+
+class CheckFailedDeploys extends Command
+{
+    protected $signature = 'monitor:check-failed-deploys';
+    protected $description = 'Check for failed deploy_log entries in the past week and alert if found';
+
+    public function handle(): void
+    {
+        $failedCount = DeployLog::where('status', 'failed')
+            ->where('created_at', '>=', now()->subWeek())
+            ->count();
+
+        if ($failedCount > 0) {
+            $message = "⚠️ {$failedCount} failed deploy(s) in the past week. Check deploy_logs table in api_zeplow.";
+            Log::warning($message);
+
+            Mail::raw($message, function ($mail) use ($failedCount) {
+                $mail->to('shakib@zeplow.com')
+                    ->subject("Zeplow API: {$failedCount} failed deploy(s) this week");
+            });
+
+            $this->warn($message);
+        } else {
+            $this->info('No failed deploys in the past week.');
+        }
+    }
+}
+```
+
+**Cron Schedule (both apps):**
+
+```php name=cms-app/app/Console/Kernel.php (schedule method)
+$schedule->command('monitor:check-failed-syncs')->weeklyOn(1, '09:00'); // Monday 9 AM
+```
+
+```php name=api-app/app/Console/Kernel.php (schedule method)
+$schedule->command('monitor:check-failed-deploys')->weeklyOn(1, '09:00'); // Monday 9 AM
+```
+
+**Cloudflare Pages Build Failure Notifications:**
+- Navigate to each Cloudflare Pages project → Settings → Notifications
+- Enable "Build failed" email notifications to shakib@zeplow.com and shadman@zeplow.com
 
 ---
 
@@ -3578,9 +3925,10 @@ MAIL_FROM_NAME="Zeplow"
 | 3.4 | Create all database migrations | site_content, site_configs, contact_submissions, deploy_logs, api_keys | 3.2 |
 | 3.5 | Run migrations | `php artisan migrate` | 3.1, 3.4 |
 | 3.6 | Create Eloquent models | SiteContent, SiteConfig, ContactSubmission, DeployLog, ApiKey | 3.4 |
-| 3.7 | Create ValidateApiKey middleware | Bearer token validation | 3.6 |
-| 3.8 | Create DeployService | Cloudflare deploy hook trigger with logging | 3.6 |
-| 3.9 | Create ContentSyncController | Internal endpoint: receive, store, invalidate cache (with TYPE_TO_CACHE_PREFIX mapping), trigger deploy | 3.6, 3.7, 3.8 |
+| 3.7 | Create ValidateApiKey middleware | Bearer token validation (compares SHA-256 hash) | 3.6 |
+| 3.7b | Create ValidateSiteKey middleware | Whitelist check for `{siteKey}` route parameter | 3.2 |
+| 3.8 | Create DeployService + CacheService | Cloudflare deploy hook trigger with logging + prefix-based cache flush | 3.6 |
+| 3.9 | Create ContentSyncController | Internal endpoint: receive, store, invalidate cache (with TYPE_TO_CACHE_PREFIX mapping + prefix-based list flush), trigger deploy | 3.6, 3.7, 3.8 |
 | 3.10 | Create ConfigSyncController | Internal endpoint: receive and store site configs | 3.6, 3.7 |
 | 3.11 | Create SitePageController | Public endpoint: list pages, show page (with caching) | 3.6 |
 | 3.12 | Create SiteProjectController | Public endpoint: list projects (with featured/limit filters + pagination), show project | 3.6 |
@@ -3593,7 +3941,7 @@ MAIL_FROM_NAME="Zeplow"
 | 3.19 | Define all routes | routes/api.php with public and internal groups | 3.9–3.18 |
 | 3.20 | Configure CORS | Allow frontends + localhost, allow GET + POST | 3.2 |
 | 3.21 | Configure rate limiting | 60 requests/minute on public endpoints | 3.2 |
-| 3.22 | Generate API key | Store in api_keys table, share with CMS .env | 3.6 |
+| 3.22 | Generate API key via `php artisan api-key:generate` | Key shown once, SHA-256 hash stored in api_keys table, plaintext copied to CMS .env | 3.6 |
 | 3.23 | Deploy API to cPanel | Upload, configure .env, run migrations | 3.1–3.22 |
 | 3.24 | Configure Cloudflare proxy for api.zeplow.com | Verify orange cloud is on, SSL works | 3.23 |
 | 3.25 | Test: CMS publish → API receives → content stored | End-to-end sync test | 2.18, 3.23 |
@@ -3672,7 +4020,9 @@ MAIL_FROM_NAME="Zeplow"
 | Edit and re-publish a page | API receives updated content, cache invalidated | ☐ |
 | Delete a project | API receives delete command, content removed | ☐ |
 | Use "Resync All Content" action | All published content re-sent to API | ☐ |
-| API is down during publish | Sync job fails after 3 retries, sync_logs shows "failed" | ☐ |
+| API is down during publish | Sync job fails after 3 retries, sync_logs shows "failed" (single sync_log entry, not one per retry) | ☐ |
+| Unpublish a team member | Observer triggers deleteContent, team member removed from API | ☐ |
+| Resync All only syncs published team members | Unpublished team members are not sent to API | ☐ |
 
 ### 18.2 API Testing
 
@@ -3685,7 +4035,8 @@ MAIL_FROM_NAME="Zeplow"
 | GET /sites/v1/logic/projects (no limit) | Returns paginated response with data + meta | ☐ |
 | GET /sites/v1/parent/blog | Returns published blog posts | ☐ |
 | GET /sites/v1/narrative/config | Returns nav, footer, CTA, socials | ☐ |
-| GET /sites/v1/nonexistent/pages | Returns 404 | ☐ |
+| GET /sites/v1/nonexistent/pages | Returns 404 (ValidateSiteKey middleware rejects before DB query) | ☐ |
+| GET /sites/v1/garbage123/config | Returns 404 immediately, no cache entry created | ☐ |
 | POST /internal/v1/content/sync without API key | Returns 401 | ☐ |
 | POST /internal/v1/content/sync with invalid key | Returns 403 | ☐ |
 | POST /internal/v1/content/sync with valid key | Returns 200, content stored | ☐ |
@@ -3695,6 +4046,8 @@ MAIL_FROM_NAME="Zeplow"
 | Hit rate limit (60+ requests/minute) | Returns 429 | ☐ |
 | Same endpoint called twice within 1 hour | Second response served from cache (faster) | ☐ |
 | Sync blog_post content type → check cache key | Cache key uses "blog" prefix, not "blog_posts" | ☐ |
+| Sync project → verify parameterized list caches are cleared | Cache keys like `list:true:3:1:50` must be flushed, not just the base `list` key | ☐ |
+| Verify API key is stored as SHA-256 hash in api_keys table | `key_hash` column contains a 64-char hex string, no plaintext key column exists | ☐ |
 
 ### 18.3 Frontend Testing
 
@@ -3743,7 +4096,7 @@ MAIL_FROM_NAME="Zeplow"
 | 6 | Run Lighthouse audit on all pages | Day 1 |
 | 7 | Test contact form end-to-end (submit → email received) | Day 1 |
 | 8 | Set up Cloudflare Pages email notifications for failed builds | Day 1 |
-| 9 | Back up both MySQL databases | Day 1 (then weekly) |
+| 9 | Set up database backup strategy (see details below) | Day 1 (then weekly) |
 | 10 | Document the API key in a secure location (not in Git) | Day 1 |
 | 11 | Test "Resync All" recovery after simulated failure | Day 2 |
 | 12 | Monitor API response times for first week | Week 1 |
@@ -3751,3 +4104,39 @@ MAIL_FROM_NAME="Zeplow"
 | 14 | Check sync_logs for any failed syncs | Weekly |
 | 15 | Check deploy_logs for any failed deploys | Weekly |
 | 16 | Add Cloudflare Cache Rule for `cms.zeplow.com/storage/*` with 30-day TTL | Day 1 |
+| 17 | Set up UptimeRobot health check monitor (see Section 11.6) | Day 1 |
+| 18 | Set up weekly monitoring cron jobs (see Section 11.6) | Day 1 |
+
+### 19.1 Database Backup Strategy
+
+**Critical note:** The API database (`api_zeplow`) is fully reconstructable from the CMS using the "Resync All" action — the CMS database (`cms_zeplow`) is the critical one to back up. Both should be backed up, but `cms_zeplow` is the priority.
+
+**Backup methods (use both):**
+
+| Method | Tool | Frequency | Retention |
+|:---|:---|:---|:---|
+| Full database backup | cPanel's built-in Backup Wizard | Weekly (manual or scheduled) | Per cPanel retention policy |
+| Automated mysqldump | Cron job (see below) | Weekly | Last 4 backups (rolling) |
+
+**Automated backup cron job:**
+
+```bash
+# Add to cPanel Cron Jobs (runs every Sunday at 2 AM server time)
+# Backs up both databases to a directory OUTSIDE the web root
+
+# CMS database backup (CRITICAL — this is the source of truth)
+0 2 * * 0 mysqldump -u cms_user -p'YOUR_PASSWORD' cms_zeplow | gzip > /home/cpanel_user/backups/cms_zeplow_$(date +\%Y\%m\%d).sql.gz
+
+# API database backup (reconstructable, but backup saves time)
+5 2 * * 0 mysqldump -u api_user -p'YOUR_PASSWORD' api_zeplow | gzip > /home/cpanel_user/backups/api_zeplow_$(date +\%Y\%m\%d).sql.gz
+
+# Clean up backups older than 28 days (keep last 4 weekly backups)
+10 2 * * 0 find /home/cpanel_user/backups/ -name "*.sql.gz" -mtime +28 -delete
+```
+
+**Important:**
+- The `/home/cpanel_user/backups/` directory must be created manually and must be **outside** the `public_html` directory (not web-accessible)
+- Replace `cpanel_user` with the actual cPanel username
+- Replace `YOUR_PASSWORD` with the actual database passwords
+- Test the restore process at least once: `gunzip < backup.sql.gz | mysql -u user -p database_name`
+- For disaster recovery: restore `cms_zeplow` from backup, then use "Resync All" to repopulate `api_zeplow`
