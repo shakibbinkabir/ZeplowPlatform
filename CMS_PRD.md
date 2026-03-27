@@ -1,6 +1,6 @@
 # ZEPLOW CMS — PRODUCT REQUIREMENTS DOCUMENT (PRD)
 
-**Version:** 1.0
+**Version:** 1.2
 **Date:** March 27, 2026
 **Derived From:** Zeplow Platform Central PRD v1.1 (March 11, 2026)
 **Original Author:** Shakib Bin Kabir
@@ -793,6 +793,10 @@ class User extends Authenticatable implements FilamentUser
 }
 ```
 
+### 5.10 Known Limitation — No Soft Deletes
+
+No models use soft deletes in V1. When content is deleted in Filament, it is permanently removed from the CMS database and a delete sync is sent to the API. There is no undo mechanism. For V2, consider adding a `content_versions` table or soft deletes with a 30-day retention policy.
+
 ---
 
 ## 6. FILAMENT RESOURCES — COMPLETE SPECIFICATIONS
@@ -1279,7 +1283,38 @@ If storage needs grow beyond cPanel limits, migrate media to **Cloudflare R2** (
 - **Only published content is synced.** If `is_published` is false, the observer does NOT dispatch a sync job.
 - **Deletes are always synced**, regardless of publish status.
 - **Team members are always synced** (no `is_published` filter on team — the CMS controls what gets synced by what exists).
+  - **Note:** Team members have no `is_published` field. All team member records are synced on every save. To hide a team member from the frontend, delete the record from the CMS. This is intentional — team visibility is controlled by record existence, not a toggle.
 - **Config changes are always synced** (one config per site, always active).
+
+### 11.4 Image URL Construction in Sync Payloads
+
+When the SyncService (via Observers) builds data payloads for models with media (projects, blog posts, testimonials, team members, pages), it must construct **absolute URLs** for images using Spatie MediaLibrary's `getUrl()` and `getUrl('conversion-name')` methods.
+
+**Rules:**
+- The sync payload should include the **full-size image URL** as the primary image field.
+- Optionally include conversion URLs (thumbnail, medium, large) as additional fields so frontends can choose the appropriate image size without URL manipulation.
+- URL pattern: `https://cms.zeplow.com/storage/{path}` (generated automatically by Spatie's public disk URL generation).
+
+**Example — Project sync payload with image conversions:**
+
+```php
+// Inside ProjectObserver::saved()
+'images' => $project->getMedia('images')->map(fn ($media) => [
+    'original'  => $media->getUrl(),
+    'thumbnail' => $media->getUrl('thumbnail'),
+    'medium'    => $media->getUrl('medium'),
+    'large'     => $media->getUrl('large'),
+])->toArray(),
+```
+
+**Example — BlogPost sync payload with single cover image:**
+
+```php
+// Inside BlogPostObserver::saved()
+'cover_image' => $post->getFirstMediaUrl('cover_image'),
+```
+
+This ensures frontends receive ready-to-use absolute URLs at every available size. All image URLs are served via Cloudflare CDN (see Section 10.3).
 
 ---
 
@@ -1309,6 +1344,7 @@ class SyncContentJob implements ShouldQueue
     public int $backoff = 5;
 
     public function __construct(
+        private int $syncLogId,
         private string $siteKey,
         private string $contentType,
         private string $slug,
@@ -1321,12 +1357,7 @@ class SyncContentJob implements ShouldQueue
         $apiUrl = config('services.zeplow_api.url');
         $apiKey = config('services.zeplow_api.key');
 
-        $log = SyncLog::create([
-            'site_key'     => $this->siteKey,
-            'content_type' => $this->contentType,
-            'content_slug' => $this->slug,
-            'status'       => 'pending',
-        ]);
+        $log = SyncLog::find($this->syncLogId);
 
         try {
             $response = Http::timeout(30)
@@ -1379,6 +1410,8 @@ class SyncContentJob implements ShouldQueue
 }
 ```
 
+**Key change:** The sync_log entry is created by the SyncService (Section 13) *before* the job is dispatched. The job receives the `$syncLogId` and updates the existing record on each attempt. This prevents duplicate sync_log entries on job retries.
+
 ### 12.2 SyncConfigJob
 
 ```php
@@ -1386,6 +1419,7 @@ class SyncContentJob implements ShouldQueue
 
 namespace App\Jobs;
 
+use App\Models\SyncLog;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -1402,6 +1436,7 @@ class SyncConfigJob implements ShouldQueue
     public int $backoff = 5;
 
     public function __construct(
+        private int $syncLogId,
         private string $siteKey,
         private array $configData,
     ) {}
@@ -1410,6 +1445,8 @@ class SyncConfigJob implements ShouldQueue
     {
         $apiUrl = config('services.zeplow_api.url');
         $apiKey = config('services.zeplow_api.key');
+
+        $log = SyncLog::find($this->syncLogId);
 
         try {
             $response = Http::timeout(30)
@@ -1423,11 +1460,29 @@ class SyncConfigJob implements ShouldQueue
                     'config'   => $this->configData,
                 ]);
 
-            if (!$response->successful()) {
-                throw new \RuntimeException("API returned {$response->status()}");
+            if ($response->successful()) {
+                $log->update([
+                    'status'        => 'success',
+                    'attempt_count' => $this->attempts(),
+                    'synced_at'     => now(),
+                ]);
+                return;
             }
 
+            $log->update([
+                'attempt_count' => $this->attempts(),
+                'last_error'    => "HTTP {$response->status()}: {$response->body()}",
+            ]);
+
+            throw new \RuntimeException("API returned {$response->status()}");
+
         } catch (\Exception $e) {
+            $log->update([
+                'attempt_count' => $this->attempts(),
+                'last_error'    => $e->getMessage(),
+                'status'        => $this->attempts() >= $this->tries ? 'failed' : 'pending',
+            ]);
+
             Log::error("Config sync failed (attempt {$this->attempts()}/{$this->tries})", [
                 'site_key' => $this->siteKey,
                 'error'    => $e->getMessage(),
@@ -1446,6 +1501,7 @@ class SyncConfigJob implements ShouldQueue
 
 namespace App\Jobs;
 
+use App\Models\SyncLog;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -1462,6 +1518,7 @@ class DeleteContentJob implements ShouldQueue
     public int $backoff = 5;
 
     public function __construct(
+        private int $syncLogId,
         private string $siteKey,
         private string $contentType,
         private string $slug,
@@ -1471,6 +1528,8 @@ class DeleteContentJob implements ShouldQueue
     {
         $apiUrl = config('services.zeplow_api.url');
         $apiKey = config('services.zeplow_api.key');
+
+        $log = SyncLog::find($this->syncLogId);
 
         try {
             $response = Http::timeout(30)
@@ -1484,11 +1543,29 @@ class DeleteContentJob implements ShouldQueue
                     'slug'         => $this->slug,
                 ]);
 
-            if (!$response->successful()) {
-                throw new \RuntimeException("API returned {$response->status()}");
+            if ($response->successful()) {
+                $log->update([
+                    'status'        => 'success',
+                    'attempt_count' => $this->attempts(),
+                    'synced_at'     => now(),
+                ]);
+                return;
             }
 
+            $log->update([
+                'attempt_count' => $this->attempts(),
+                'last_error'    => "HTTP {$response->status()}: {$response->body()}",
+            ]);
+
+            throw new \RuntimeException("API returned {$response->status()}");
+
         } catch (\Exception $e) {
+            $log->update([
+                'attempt_count' => $this->attempts(),
+                'last_error'    => $e->getMessage(),
+                'status'        => $this->attempts() >= $this->tries ? 'failed' : 'pending',
+            ]);
+
             Log::error("Content delete sync failed (attempt {$this->attempts()}/{$this->tries})", [
                 'site_key'     => $this->siteKey,
                 'content_type' => $this->contentType,
@@ -1508,7 +1585,7 @@ class DeleteContentJob implements ShouldQueue
 
 **File:** `app/Services/SyncService.php`
 
-The SyncService is a thin dispatch layer. It builds no payloads — the Observers build the payloads and call the service.
+The SyncService creates a `sync_log` entry with `status: 'pending'` **before** dispatching each job, then passes the `$syncLogId` to the job constructor. This ensures exactly one sync_log entry per sync operation, even if the job retries multiple times. The Observers build the payloads and call the service.
 
 ```php
 <?php
@@ -1518,11 +1595,13 @@ namespace App\Services;
 use App\Jobs\SyncContentJob;
 use App\Jobs\SyncConfigJob;
 use App\Jobs\DeleteContentJob;
+use App\Models\SyncLog;
 
 class SyncService
 {
     /**
      * Dispatch a content sync job.
+     * Creates a sync_log entry first, then passes the ID to the job.
      * With QUEUE_CONNECTION=sync: executes immediately.
      * With database/redis queue: executes asynchronously.
      */
@@ -1533,23 +1612,46 @@ class SyncService
         array $data,
         ?string $publishedAt = null
     ): void {
-        SyncContentJob::dispatch($siteKey, $contentType, $slug, $data, $publishedAt);
+        $log = SyncLog::create([
+            'site_key'     => $siteKey,
+            'content_type' => $contentType,
+            'content_slug' => $slug,
+            'status'       => 'pending',
+        ]);
+
+        SyncContentJob::dispatch($log->id, $siteKey, $contentType, $slug, $data, $publishedAt);
     }
 
     /**
      * Dispatch a config sync job.
+     * Creates a sync_log entry first, then passes the ID to the job.
      */
     public function syncConfig(string $siteKey, array $configData): void
     {
-        SyncConfigJob::dispatch($siteKey, $configData);
+        $log = SyncLog::create([
+            'site_key'     => $siteKey,
+            'content_type' => 'site_config',
+            'content_slug' => $siteKey,
+            'status'       => 'pending',
+        ]);
+
+        SyncConfigJob::dispatch($log->id, $siteKey, $configData);
     }
 
     /**
      * Dispatch a content delete job.
+     * Creates a sync_log entry first, then passes the ID to the job.
      */
     public function deleteContent(string $siteKey, string $contentType, string $slug): void
     {
-        DeleteContentJob::dispatch($siteKey, $contentType, $slug);
+        $log = SyncLog::create([
+            'site_key'     => $siteKey,
+            'content_type' => $contentType,
+            'content_slug' => $slug,
+            'status'       => 'pending',
+        ]);
+
+        DeleteContentJob::dispatch($log->id, $siteKey, $contentType, $slug);
     }
 }
 ```
@@ -2014,6 +2116,78 @@ The **Last Deploy Status** dashboard widget (Section 8.2) queries the `sync_logs
 - Red warning if the most recent sync for any site has status `failed`
 - The error message from `last_error` for failed syncs
 
+### 17.4 Automated Failed Sync Alerts
+
+A scheduled Artisan command runs weekly to detect and report failed syncs.
+
+**File:** `app/Console/Commands/CheckFailedSyncsCommand.php`
+
+```php
+<?php
+
+namespace App\Console\Commands;
+
+use App\Models\SyncLog;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Mail;
+
+class CheckFailedSyncsCommand extends Command
+{
+    protected $signature = 'sync:check-failed';
+    protected $description = 'Check for failed syncs in the last 7 days and send a summary email';
+
+    public function handle(): int
+    {
+        $failedSyncs = SyncLog::where('status', 'failed')
+            ->where('created_at', '>=', now()->subDays(7))
+            ->get();
+
+        if ($failedSyncs->isEmpty()) {
+            $this->info('No failed syncs in the last 7 days.');
+            return self::SUCCESS;
+        }
+
+        $summary = $failedSyncs->map(function ($log) {
+            return "[{$log->created_at}] {$log->site_key}/{$log->content_type}/{$log->content_slug} — {$log->last_error}";
+        })->implode("\n");
+
+        Mail::raw(
+            "Failed Syncs Summary (last 7 days):\n\n{$summary}\n\nTotal: {$failedSyncs->count()} failed sync(s).\n\nUse the 'Resync All' action in the CMS dashboard to retry.",
+            function ($message) use ($failedSyncs) {
+                $message->to('hello@zeplow.com')
+                    ->subject("Zeplow CMS: {$failedSyncs->count()} Failed Sync(s) This Week");
+            }
+        );
+
+        $this->warn("{$failedSyncs->count()} failed sync(s) found. Summary email sent to hello@zeplow.com.");
+        return self::SUCCESS;
+    }
+}
+```
+
+**Scheduler Registration:**
+
+```php
+// app/Console/Kernel.php (or bootstrap/app.php in Laravel 11)
+
+protected function schedule(Schedule $schedule): void
+{
+    $schedule->command('sync:check-failed')->weekly()->mondays()->at('09:00');
+}
+```
+
+**cPanel Cron Job:** Add the following cron entry to run the Laravel scheduler:
+
+```
+* * * * * cd /home/{user}/cms-app && php artisan schedule:run >> /dev/null 2>&1
+```
+
+Alternatively, run every 5 minutes if per-minute cron is not available on the hosting plan:
+
+```
+*/5 * * * * cd /home/{user}/cms-app && php artisan schedule:run >> /dev/null 2>&1
+```
+
 ---
 
 ## 18. SEED DATA
@@ -2148,7 +2322,7 @@ FILESYSTEM_DISK=public
 
 # API Sync
 ZEPLOW_API_URL=https://api.zeplow.com
-ZEPLOW_API_KEY=... (64-character random string, must match API app's api_keys table)
+ZEPLOW_API_KEY=... (This is the plaintext API key. It is stored as a SHA-256 hash in the API app's database. Keep this value secret — if lost, a new key must be generated on both the API and CMS.)
 
 # Session, Cache, Queue
 SESSION_DRIVER=file
@@ -2258,6 +2432,9 @@ cms-app/
 │   │       ├── ContentOverviewWidget.php      # Total pages, projects, posts
 │   │       ├── LastDeployStatusWidget.php      # Last sync status per site
 │   │       └── QuickActionsWidget.php          # Resync + view site links
+│   ├── Console/
+│   │   └── Commands/
+│   │       └── CheckFailedSyncsCommand.php    # Weekly email alert for failed syncs
 │   ├── Jobs/
 │   │   ├── SyncContentJob.php                 # Syncs content to API (3 retries, 5s backoff)
 │   │   ├── SyncConfigJob.php                  # Syncs site config to API
@@ -2377,6 +2554,7 @@ cms-app/
 | 6.1 | Create ContentOverviewWidget | Total pages, projects, blog posts | 3.1–3.7 |
 | 6.2 | Create LastDeployStatusWidget | Query sync_logs for last sync per site | 5.2 |
 | 6.3 | Create QuickActionsWidget | Resync button + external site links | 5.7 |
+| 6.4 | Create CheckFailedSyncsCommand | Weekly Artisan command to email summary of failed syncs (Section 17.4) | 5.2 |
 
 ### Phase 7: Deployment & Testing (Days 9–10)
 
@@ -2390,6 +2568,9 @@ cms-app/
 | 7.6 | Test: Upload image, verify CDN | Check cf-cache-status header on image URL | 7.2 |
 | 7.7 | Test: Resync All action | All published content re-sent | 7.5 |
 | 7.8 | Test: API down during publish | sync_logs shows "failed" after 3 retries | 7.5 |
+| 7.9 | Set up cPanel cron job for Laravel scheduler | `* * * * * cd /home/{user}/cms-app && php artisan schedule:run >> /dev/null 2>&1` | 7.1 |
+| 7.10 | Set up weekly database backup cron job | `mysqldump` to `/home/{user}/backups/` with 28-day retention cleanup | 7.1 |
+| 7.11 | Test: Failed sync email alert | Manually create a failed sync_log, run `php artisan sync:check-failed`, verify email | 7.9 |
 
 ---
 
@@ -2468,7 +2649,9 @@ cms-app/
 | 4 | Add Cloudflare Cache Rule for `cms.zeplow.com/storage/*` with 30-day TTL | Day 1 |
 | 5 | Test end-to-end: create content → sync to API → appears on live site | Day 1 |
 | 6 | Verify both users can login with correct role permissions | Day 1 |
-| 7 | Back up cms_zeplow database | Day 1 (then weekly) |
+| 7a | Set up weekly database backup cron job: `mysqldump cms_zeplow > /home/{user}/backups/cms_zeplow_$(date +\%Y\%m\%d).sql` | Day 1 |
+| 7b | Set up backup retention: add a cleanup script to delete backups older than 28 days (retain last 4 weekly backups) | Day 1 |
+| 7c | Note: The CMS database is the critical backup — the API database can be fully reconstructed using "Resync All" | — |
 | 8 | Document the API key in a secure location (not in Git) | Day 1 |
 | 9 | Change default passwords if using seeder-generated passwords | Day 1 |
 | 10 | Check sync_logs for any failed syncs | Daily for first week, then weekly |
