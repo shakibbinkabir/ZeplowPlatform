@@ -1,0 +1,40 @@
+# Laravel (applies to cms/ and api/ subdirectories)
+/cms/vendor/
+/cms/node_modules/
+/cms/.env
+/cms/storage/*.key
+/cms/storage/framework/cache/data/*
+/cms/storage/framework/sessions/*
+/cms/storage/framework/views/*
+/cms/storage/logs/*
+/cms/bootstrap/cache/*
+/cms/public/hot
+/cms/public/storage
+
+/api/vendor/
+/api/node_modules/
+/api/.env
+/api/storage/*.key
+/api/storage/framework/cache/data/*
+/api/storage/framework/sessions/*
+/api/storage/framework/views/*
+/api/storage/logs/*
+/api/bootstrap/cache/*
+/api/public/hot
+/api/public/storage
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files (root level too)
+.env
+.env.backup
+.env.production
