@@ -24,6 +24,7 @@ class SiteConfigObserver
                 'cta_url' => $config->cta_url,
                 'social_links' => $config->social_links,
                 'contact_email' => $config->contact_email,
+                'contact_phone' => $config->contact_phone,
             ],
         );
     }

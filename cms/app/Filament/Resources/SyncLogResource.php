@@ -35,12 +35,14 @@ class SyncLogResource extends Resource
                 Tables\Columns\TextColumn::make('content_slug')
                     ->searchable(),
 
-                Tables\Columns\BadgeColumn::make('status')
-                    ->colors([
+                Tables\Columns\TextColumn::make('status')
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
                         'success' => 'success',
-                        'warning' => 'pending',
-                        'danger' => 'failed',
-                    ]),
+                        'pending' => 'warning',
+                        'failed' => 'danger',
+                        default => 'gray',
+                    }),
 
                 Tables\Columns\TextColumn::make('attempt_count')
                     ->sortable(),

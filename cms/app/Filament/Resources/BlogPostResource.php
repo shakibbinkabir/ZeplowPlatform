@@ -38,7 +38,10 @@ class BlogPostResource extends Resource
 
                         Forms\Components\TextInput::make('slug')
                             ->required()
-                            ->maxLength(255),
+                            ->maxLength(255)
+                            ->unique(ignoreRecord: true, modifyRuleUsing: function ($rule, Forms\Get $get) {
+                                return $rule->where('site_id', $get('site_id'));
+                            }),
 
                         Forms\Components\Textarea::make('excerpt')
                             ->maxLength(500),
@@ -99,6 +102,10 @@ class BlogPostResource extends Resource
                 Tables\Columns\TextColumn::make('author')
                     ->searchable(),
 
+                Tables\Columns\TextColumn::make('tags')
+                    ->badge()
+                    ->separator(','),
+
                 Tables\Columns\IconColumn::make('is_published')
                     ->boolean(),
 
@@ -113,6 +120,12 @@ class BlogPostResource extends Resource
                     ->label('Site'),
 
                 Tables\Filters\TernaryFilter::make('is_published'),
+
+                Tables\Filters\SelectFilter::make('author')
+                    ->options(fn () => \App\Models\BlogPost::whereNotNull('author')
+                        ->distinct()
+                        ->pluck('author', 'author')
+                        ->toArray()),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

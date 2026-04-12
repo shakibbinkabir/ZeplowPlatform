@@ -38,7 +38,10 @@ class ProjectResource extends Resource
 
                         Forms\Components\TextInput::make('slug')
                             ->required()
-                            ->maxLength(255),
+                            ->maxLength(255)
+                            ->unique(ignoreRecord: true, modifyRuleUsing: function ($rule, Forms\Get $get) {
+                                return $rule->where('site_id', $get('site_id'));
+                            }),
 
                         Forms\Components\Textarea::make('one_liner')
                             ->required()
@@ -134,6 +137,12 @@ class ProjectResource extends Resource
                 Tables\Filters\TernaryFilter::make('is_published'),
 
                 Tables\Filters\TernaryFilter::make('featured'),
+
+                Tables\Filters\SelectFilter::make('industry')
+                    ->options(fn () => \App\Models\Project::whereNotNull('industry')
+                        ->distinct()
+                        ->pluck('industry', 'industry')
+                        ->toArray()),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

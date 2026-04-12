@@ -32,6 +32,9 @@ class ProjectObserver
                             'large' => $media->getUrl('large'),
                             'medium' => $media->getUrl('medium'),
                             'thumbnail' => $media->getUrl('thumbnail'),
+                            'large_webp' => $media->hasGeneratedConversion('large-webp')
+                                ? $media->getUrl('large-webp')
+                                : null,
                             'alt' => $media->getCustomProperty('alt', ''),
                         ];
                     })->toArray(),

@@ -81,7 +81,9 @@ class TeamMemberResource extends Resource
                     ->sortable(),
             ])
             ->filters([
-                //
+                Tables\Filters\SelectFilter::make('site_id')
+                    ->relationship('site', 'name')
+                    ->label('Site'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

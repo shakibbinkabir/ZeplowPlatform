@@ -78,7 +78,11 @@ class TestimonialResource extends Resource
                     ->sortable(),
             ])
             ->filters([
-                //
+                Tables\Filters\SelectFilter::make('site_id')
+                    ->relationship('site', 'name')
+                    ->label('Site'),
+
+                Tables\Filters\TernaryFilter::make('is_published'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

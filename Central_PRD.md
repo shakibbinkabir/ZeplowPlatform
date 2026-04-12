@@ -363,11 +363,12 @@ Each page's `content` field is a Filament Repeater with a Block type selector. E
 | linkedin | TextInput (url) | nullable | LinkedIn profile URL |
 | email | TextInput (email) | nullable | Contact email |
 | is_founder | Toggle | default: false | Distinguish founders from team |
-| is_published | Toggle | default: true | Controls visibility — only published team members are synced to API and shown on frontend |
 | sort_order | TextInput (numeric) | default: 0 | Display order |
 
-**Table Columns:** name, role, site.name, is_founder, is_published, sort_order
-**Table Filters:** site_id, is_published
+**Note:** Team members have no `is_published` field. All team member records are synced on every save. To hide a team member from the frontend, delete the record from the CMS. Visibility is controlled by record existence, not a toggle.
+
+**Table Columns:** name, role, site.name, is_founder, sort_order
+**Table Filters:** site_id
 
 #### 3.4.7 SiteConfigResource
 

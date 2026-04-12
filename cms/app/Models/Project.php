@@ -46,5 +46,8 @@ class Project extends Model implements HasMedia
 
         $this->addMediaConversion('large')
             ->width(1600)->height(1200);
+
+        $this->addMediaConversion('large-webp')
+            ->width(1600)->height(1200)->format('webp');
     }
 }
