@@ -1,0 +1,19 @@
+{
+  "name": "zeplow-sites",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:parent": "turbo run dev --filter=parent",
+    "dev:narrative": "turbo run dev --filter=narrative",
+    "dev:logic": "turbo run dev --filter=logic",
+    "build:parent": "turbo run build --filter=parent",
+    "build:narrative": "turbo run build --filter=narrative",
+    "build:logic": "turbo run build --filter=logic",
+    "build:all": "turbo run build",
+    "lint": "turbo run lint"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: #034c3c;
+    --color-background: #f4f4f4;
+    --color-text: #140004;
+    --color-accent: #ff6f59;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgba(3, 76, 60, 0.12);
+    color: #034c3c;
+  }
+}
+
+/* Rich text content from CMS */
+.prose-custom h2 {
+  @apply font-heading text-2xl font-bold tracking-tight text-primary mt-12 mb-4;
+}
+
+.prose-custom h3 {
+  @apply font-heading text-xl font-bold tracking-tight text-primary mt-8 mb-3;
+}
+
+.prose-custom p {
+  @apply mb-6 leading-[1.8];
+}
+
+.prose-custom a {
+  @apply text-accent underline underline-offset-4 decoration-accent/30 hover:decoration-accent/60 transition-colors;
+}
+
+.prose-custom ul {
+  @apply mb-6 ml-6 list-disc marker:text-text/20;
+}
+
+.prose-custom ol {
+  @apply mb-6 ml-6 list-decimal marker:text-text/20;
+}
+
+.prose-custom li {
+  @apply mb-2 leading-[1.8];
+}
+
+.prose-custom blockquote {
+  @apply border-l-2 border-primary/20 pl-6 italic text-text/50 my-8;
+}
+
+.prose-custom strong {
+  @apply font-semibold text-text/80;
+}

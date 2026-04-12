@@ -1451,82 +1451,101 @@ For the static export, also generate a `404.html` in `apps/parent/public/` that 
 
 ## 20. IMPLEMENTATION ORDER
 
-### Phase 1: App Scaffolding (Day 1)
+### Mock Data Strategy
+
+During frontend development (Phases 1–6), the `@zeplow/api` client uses **mock data fallbacks**. When the API at `api.zeplow.com` (or `localhost:8000`) is unreachable, every fetch function returns hardcoded mock data defined in `packages/api/src/mock-data.ts`. This allows the frontend to be developed, styled, and tested independently of the CMS and API.
+
+The mock data includes:
+- Parent site config (nav items, footer links, CTA, social links, contact email)
+- All 7 parent pages with content blocks matching the CMS content spec (Section 16)
+- 3 featured projects (Tututor.ai, CAPEC AI, Aditio ERP)
+- 2 team members (Shadman Sakib, Shakib Bin Kabir)
+- Empty blog posts array (blog content added via CMS later)
+
+**When the API is available**, the client fetches live data and the mocks are never used. No code changes are needed to switch — the try/catch fallback handles it automatically.
+
+### Phase 1: Full App Scaffolding (Day 1) ✅
 
 | # | Task | Details | Depends On |
 |:---|:---|:---|:---|
-| 1.1 | Create `apps/parent` in monorepo | `npx create-next-app apps/parent` with App Router, TypeScript, Tailwind | Monorepo infra (Phase 1 of central plan) |
-| 1.2 | Configure `next.config.js` | `output: 'export'`, `unoptimized` images, `transpilePackages` | 1.1 |
-| 1.3 | Configure `tailwind.config.ts` | Parent brand colors, font families, content paths | 1.1 |
-| 1.4 | Download and self-host fonts | Playfair Display Bold + Manrope 400/500/600/700 into `public/fonts/` | 1.1 |
-| 1.5 | Create `globals.css` | Tailwind directives, base styles, CSS variables | 1.3 |
-| 1.6 | Verify `pnpm dev:parent` runs | Dev server on localhost:3000 | 1.1–1.5 |
+| 1.1 | Create monorepo infrastructure | Root `package.json`, `turbo.json`, `pnpm-workspace.yaml` | — |
+| 1.2 | Create `@zeplow/config` package | Brand colors and font mappings for all 3 sites | 1.1 |
+| 1.3 | Create `@zeplow/api` package | TypeScript types, API client with mock fallbacks, image helper | 1.1 |
+| 1.4 | Create `@zeplow/ui` package | 14 shared components (Navigation, Footer, ContentRenderer, ContactForm, etc.) | 1.1 |
+| 1.5 | Create `apps/parent` | Next.js 14 app with App Router, TypeScript, Tailwind | 1.1 |
+| 1.6 | Configure `next.config.js` | `output: 'export'`, `unoptimized` images, `transpilePackages` | 1.5 |
+| 1.7 | Configure `tailwind.config.ts` | Parent brand colors, font families, content paths | 1.5 |
+| 1.8 | Download and self-host fonts | Playfair Display Bold + Manrope 400/500/600/700 into `public/fonts/` | 1.5 |
+| 1.9 | Create `globals.css` | Tailwind directives, base styles, CSS variables, prose styles | 1.7 |
+| 1.10 | Create root layout (`layout.tsx`) | `next/font/local`, `getSiteConfig('parent')`, Navigation + Footer | 1.4, 1.8 |
+| 1.11 | Create all 9 page routes | Home, About, Ventures (×3), Insights (×2), Careers, Contact | 1.10 |
+| 1.12 | Create `sitemap.ts` | Dynamic sitemap from API/mock data | 1.11 |
+| 1.13 | Create `not-found.tsx` | Branded 404 page | 1.10 |
+| 1.14 | Create public assets | `_headers`, `robots.txt`, `404.html` (static fallback) | 1.5 |
+| 1.15 | Create `VentureCard` component | Parent-specific large venture card | 1.5 |
+| 1.16 | Install dependencies | `pnpm install` — all workspace packages resolved | 1.1–1.15 |
+| 1.17 | Verify `pnpm dev:parent` runs | Dev server on localhost:3000, all routes return 200 with mock data | 1.16 |
 
-### Phase 2: Layout & Navigation (Day 2)
-
-| # | Task | Details | Depends On |
-|:---|:---|:---|:---|
-| 2.1 | Create root layout (`layout.tsx`) | Fonts, metadata base, `getSiteConfig('parent')`, Navigation + Footer | 1.6, shared packages |
-| 2.2 | Create `public/_headers` | Security headers for Cloudflare | 1.1 |
-| 2.3 | Create `public/robots.txt` | Allow all, sitemap URL | 1.1 |
-
-### Phase 3: Page Data Layer (Days 3–4)
-
-| # | Task | Details | Depends On |
-|:---|:---|:---|:---|
-| 3.1 | Wire up Home page | `getPage` + `getProjects` + `ContentRenderer` + `OrganizationSchema` | 2.1 |
-| 3.2 | Wire up About page | `getPage` + `getTeamMembers` | 2.1 |
-| 3.3 | Wire up Ventures overview | `getPage` | 2.1 |
-| 3.4 | Wire up Ventures/Narrative detail | `getPage('parent', 'ventures-narrative')` | 2.1 |
-| 3.5 | Wire up Ventures/Logic detail | `getPage('parent', 'ventures-logic')` | 2.1 |
-| 3.6 | Wire up Insights listing | `getBlogPosts` + `BlogCard` | 2.1 |
-| 3.7 | Wire up Insights/[slug] detail | `getBlogPost` + `generateStaticParams` + `ArticleSchema` | 2.1 |
-| 3.8 | Wire up Careers placeholder | `getPage` | 2.1 |
-| 3.9 | Wire up Contact page | `getPage` + `ContactForm` | 2.1 |
-| 3.10 | Create sitemap.ts | Dynamic sitemap from API data | 3.1–3.9 |
-
-### Phase 4: Build Verification (Day 5)
+### Phase 2: Design & Polish (Days 2–4)
 
 | # | Task | Details | Depends On |
 |:---|:---|:---|:---|
-| 4.1 | Create `generateStaticParams` for blog routes | Enumerate all blog slugs | 3.7 |
-| 4.2 | Run `pnpm build:parent` locally | Verify static export succeeds → files in `apps/parent/out/` | 3.1–3.10 |
-| 4.3 | Inspect generated HTML | Check meta tags, JSON-LD, content rendering | 4.2 |
+| 2.1 | Design and implement all block components | Hero, Text, Cards, CTA, Stats, Team, etc. — apply Tailwind styling | 1.17 |
+| 2.2 | Design and implement VentureCard component | Large venture card for /ventures page | 1.17 |
+| 2.3 | Design and implement Navigation | Desktop + mobile responsive | 1.17 |
+| 2.4 | Design and implement Footer | Links, socials, copyright | 1.17 |
+| 2.5 | Add Framer Motion animations | Page transitions, scroll reveals | 2.1–2.4 |
+| 2.6 | Responsive design pass | Mobile, tablet, desktop breakpoints | 2.1–2.4 |
 
-### Phase 5: Cloudflare Deployment (Day 5–6)
-
-| # | Task | Details | Depends On |
-|:---|:---|:---|:---|
-| 5.1 | Create Cloudflare Pages project `zeplow-parent` | Connect to GitHub repo | Monorepo on GitHub |
-| 5.2 | Configure build settings | Build command, output dir, env vars | 5.1 |
-| 5.3 | Add custom domain `zeplow.com` | Plus `www.zeplow.com` redirect | DNS configured |
-| 5.4 | Push to `main` and verify first deploy | Site loads on zeplow.com | 5.1–5.3 |
-| 5.5 | Get deploy hook URL | From Cloudflare Pages dashboard | 5.1 |
-| 5.6 | Add deploy hook URL to API `.env` | `CF_DEPLOY_HOOK_PARENT` | 5.5, API deployed |
-
-### Phase 6: Content Seeding (Days 6–7)
+### Phase 3: Build Verification (Day 5)
 
 | # | Task | Details | Depends On |
 |:---|:---|:---|:---|
-| 6.1 | Seed all 7 parent pages in CMS | home, about, ventures, ventures-narrative, ventures-logic, careers, contact | CMS deployed |
-| 6.2 | Seed 2 team members | Shadman + Shakib | CMS deployed |
-| 6.3 | Seed 6 projects (3 featured) | From company profile | CMS deployed |
-| 6.4 | Seed parent site config | Nav, footer, CTA, socials | CMS deployed |
-| 6.5 | Trigger resync from CMS | Resync All → parent | 6.1–6.4 |
-| 6.6 | Verify site shows content | Visit zeplow.com, check all pages | 6.5 |
+| 3.1 | Run `pnpm build:parent` locally | Verify static export succeeds → files in `apps/parent/out/` | 2.1–2.6 |
+| 3.2 | Inspect generated HTML | Check meta tags, JSON-LD, content rendering | 3.1 |
+| 3.3 | Lighthouse audit | Target 95+ on Performance, Accessibility, SEO | 3.1 |
+| 3.4 | Cross-browser testing | Chrome, Firefox, Safari, mobile | 3.1 |
 
-### Phase 7: Design & Polish (Days 8+)
+### Phase 4: Cloudflare Deployment (Day 5–6)
 
-| # | Task | Details |
-|:---|:---|:---|
-| 7.1 | Design and implement all block components | Hero, Text, Cards, CTA, Stats, Team, etc. |
-| 7.2 | Design and implement VentureCard component | Large venture card for /ventures page |
-| 7.3 | Design and implement Navigation | Desktop + mobile responsive |
-| 7.4 | Design and implement Footer | Links, socials, copyright |
-| 7.5 | Add Framer Motion animations | Page transitions, scroll reveals |
-| 7.6 | Lighthouse audit | Target 95+ |
-| 7.7 | Cross-browser testing | Chrome, Firefox, Safari, mobile |
-| 7.8 | Final QA | All links, all forms, all images |
+| # | Task | Details | Depends On |
+|:---|:---|:---|:---|
+| 4.1 | Create Cloudflare Pages project `zeplow-parent` | Connect to GitHub repo | Monorepo on GitHub |
+| 4.2 | Configure build settings | Build command, output dir, env vars | 4.1 |
+| 4.3 | Add custom domain `zeplow.com` | Plus `www.zeplow.com` redirect | DNS configured |
+| 4.4 | Push to `main` and verify first deploy | Site loads on zeplow.com (with mock data initially) | 4.1–4.3 |
+
+### Phase 5: Content Seeding (Days 6–7)
+
+| # | Task | Details | Depends On |
+|:---|:---|:---|:---|
+| 5.1 | Seed all 7 parent pages in CMS | home, about, ventures, ventures-narrative, ventures-logic, careers, contact | CMS deployed |
+| 5.2 | Seed 2 team members | Shadman + Shakib | CMS deployed |
+| 5.3 | Seed 6 projects (3 featured) | From company profile | CMS deployed |
+| 5.4 | Seed parent site config | Nav, footer, CTA, socials | CMS deployed |
+| 5.5 | Trigger resync from CMS | Resync All → parent | 5.1–5.4 |
+| 5.6 | Verify site shows content | Visit zeplow.com, check all pages | 5.5 |
+
+### Phase 6: Final QA (Day 8)
+
+| # | Task | Details | Depends On |
+|:---|:---|:---|:---|
+| 6.1 | Test all internal links | No 404s on any page | 5.6 |
+| 6.2 | Test cross-site links | /ventures/narrative → narrative.zeplow.com, etc. | 5.6 |
+| 6.3 | Test contact form end-to-end | Submit, validation, honeypot, API errors | 5.6 |
+| 6.4 | Validate JSON-LD schemas | Google Rich Results Test — no errors | 5.6 |
+| 6.5 | Final Lighthouse audit | 95+ on all pages with real content | 6.1–6.4 |
+
+### Phase 7: API Wiring & Deploy Hook Integration (Day 9)
+
+| # | Task | Details | Depends On |
+|:---|:---|:---|:---|
+| 7.1 | Verify API endpoints serve correct data | `curl api.zeplow.com/sites/v1/parent/config`, etc. | API deployed |
+| 7.2 | Update `NEXT_PUBLIC_API_URL` in Cloudflare Pages env | Point to `https://api.zeplow.com` | 7.1 |
+| 7.3 | Get deploy hook URL from Cloudflare Pages | From dashboard → Settings → Builds → Deploy hooks | 4.1 |
+| 7.4 | Add deploy hook URL to API `.env` | `CF_DEPLOY_HOOK_PARENT=<url>` | 7.3, API deployed |
+| 7.5 | Test full publish cycle | CMS publish → API sync → deploy hook → Cloudflare rebuild → live | 7.2, 7.4 |
+| 7.6 | Verify mock fallbacks are not triggered | Check that all data comes from live API, not mocks | 7.5 |
 
 ---
 

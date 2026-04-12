@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(php artisan:*)"
+      "Bash(php artisan:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm ls:*)",
+      "Bash(pnpm dev:parent)"
     ]
   }
 }
