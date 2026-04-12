@@ -1,0 +1,36 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('pages', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('site_id')->constrained()->cascadeOnDelete();
+            $table->string('title');
+            $table->string('slug');
+            $table->enum('template', [
+                'home', 'about', 'services', 'work', 'process',
+                'insights', 'contact', 'ventures', 'careers', 'default',
+            ])->default('default');
+            $table->json('content')->nullable();
+            $table->string('seo_title')->nullable();
+            $table->string('seo_description', 500)->nullable();
+            $table->boolean('is_published')->default(false);
+            $table->timestamp('published_at')->nullable();
+            $table->integer('sort_order')->default(0);
+            $table->timestamps();
+
+            $table->unique(['site_id', 'slug']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('pages');
+    }
+};
