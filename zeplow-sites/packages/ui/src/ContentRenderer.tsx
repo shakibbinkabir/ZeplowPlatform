@@ -7,6 +7,10 @@ interface ContentRendererProps {
   siteKey: string;
 }
 
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 function getHeroBackground(
   data: Record<string, unknown>,
   siteKey: string
@@ -75,6 +79,10 @@ function HeroBlock({
   siteKey: string;
 }) {
   const backgroundImage = getHeroBackground(data, siteKey);
+  const heading = asString(data.heading);
+  const subheading = asString(data.subheading);
+  const buttonText = asString(data.button_text);
+  const buttonUrl = asString(data.button_url);
 
   return (
     <section className="relative flex min-h-[85vh] items-center bg-primary pt-20">
@@ -102,20 +110,20 @@ function HeroBlock({
           Zeplow
         </p>
         <h1 className="mt-6 max-w-3xl font-heading text-5xl font-bold leading-[1.1] tracking-tight text-white md:text-6xl lg:text-7xl">
-          {data.heading as string}
+          {heading}
         </h1>
-        {data.subheading && (
+        {subheading && (
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-white/60">
-            {data.subheading as string}
+            {subheading}
           </p>
         )}
-        {data.button_text && (
+        {buttonText && buttonUrl && (
           <div className="mt-10 flex items-center gap-4">
             <a
-              href={data.button_url as string}
+              href={buttonUrl}
               className="inline-flex items-center rounded-full bg-white px-7 py-3 text-[13px] font-medium tracking-wide text-primary transition-all duration-300 hover:shadow-lg hover:shadow-white/20"
             >
-              {data.button_text as string}
+              {buttonText}
             </a>
           </div>
         )}
@@ -125,17 +133,20 @@ function HeroBlock({
 }
 
 function TextBlock({ data }: { data: Record<string, unknown> }) {
+  const heading = asString(data.heading);
+  const body = asString(data.body);
+
   return (
     <section className="py-24 md:py-32">
       <Container narrow>
-        {data.heading && (
+        {heading && (
           <h2 className="mb-8 font-heading text-3xl font-bold tracking-tight text-primary md:text-4xl">
-            {data.heading as string}
+            {heading}
           </h2>
         )}
         <div
           className="prose-custom text-lg leading-[1.8] text-text/60"
-          dangerouslySetInnerHTML={{ __html: data.body as string }}
+          dangerouslySetInnerHTML={{ __html: body }}
         />
       </Container>
     </section>
@@ -143,6 +154,7 @@ function TextBlock({ data }: { data: Record<string, unknown> }) {
 }
 
 function CardsBlock({ data }: { data: Record<string, unknown> }) {
+  const heading = asString(data.heading);
   const cards = (data.cards || []) as Array<{
     title: string;
     description: string;
@@ -155,10 +167,10 @@ function CardsBlock({ data }: { data: Record<string, unknown> }) {
   return (
     <section className="py-24 md:py-32">
       <Container>
-        {data.heading && (
+        {heading && (
           <div className="mb-16">
             <h2 className="font-heading text-3xl font-bold tracking-tight text-primary md:text-4xl">
-              {data.heading as string}
+              {heading}
             </h2>
           </div>
         )}
@@ -210,23 +222,26 @@ function CardsBlock({ data }: { data: Record<string, unknown> }) {
 }
 
 function CTABlock({ data }: { data: Record<string, unknown> }) {
+  const heading = asString(data.heading);
+  const subheading = asString(data.subheading);
+  const buttonText = asString(data.button_text);
+  const buttonUrl = asString(data.button_url);
+
   return (
     <section className="py-24 md:py-32">
       <Container>
         <div className="rounded-3xl bg-primary/[0.03] px-8 py-20 text-center md:px-16">
           <h2 className="mx-auto max-w-2xl font-heading text-2xl font-bold tracking-tight text-primary md:text-3xl lg:text-4xl">
-            {data.heading as string}
+            {heading}
           </h2>
-          {data.subheading && (
+          {subheading && (
             <p className="mx-auto mt-5 max-w-lg text-text/50">
-              {data.subheading as string}
+              {subheading}
             </p>
           )}
-          {data.button_text && (
+          {buttonText && buttonUrl && (
             <div className="mt-10">
-              <Button href={data.button_url as string}>
-                {data.button_text as string}
-              </Button>
+              <Button href={buttonUrl}>{buttonText}</Button>
             </div>
           )}
         </div>
@@ -236,20 +251,26 @@ function CTABlock({ data }: { data: Record<string, unknown> }) {
 }
 
 function ImageBlock({ data }: { data: Record<string, unknown> }) {
+  const image = asString(data.image);
+  const altText = asString(data.alt_text);
+  const caption = asString(data.caption);
+
   return (
     <section className="py-24">
       <Container>
-        <img
-          src={data.image as string}
-          alt={data.alt_text as string}
-          width={1200}
-          height={600}
-          loading="lazy"
-          className="w-full rounded-2xl"
-        />
-        {data.caption && (
+        {image && (
+          <img
+            src={image}
+            alt={altText}
+            width={1200}
+            height={600}
+            loading="lazy"
+            className="w-full rounded-2xl"
+          />
+        )}
+        {caption && (
           <p className="mt-4 text-center text-[13px] text-text/30">
-            {data.caption as string}
+            {caption}
           </p>
         )}
       </Container>
@@ -340,12 +361,14 @@ function RawHTMLBlock({ data }: { data: Record<string, unknown> }) {
 }
 
 function TeamBlock({ data }: { data: Record<string, unknown> }) {
+  const heading = asString(data.heading);
+
   return (
     <section className="py-24">
       <Container>
-        {data.heading && (
+        {heading && (
           <h2 className="mb-16 font-heading text-3xl font-bold tracking-tight text-primary">
-            {data.heading as string}
+            {heading}
           </h2>
         )}
       </Container>
@@ -354,12 +377,14 @@ function TeamBlock({ data }: { data: Record<string, unknown> }) {
 }
 
 function ProjectsBlock({ data }: { data: Record<string, unknown> }) {
+  const heading = asString(data.heading);
+
   return (
     <section className="py-24">
       <Container>
-        {data.heading && (
+        {heading && (
           <h2 className="mb-16 font-heading text-3xl font-bold tracking-tight text-primary">
-            {data.heading as string}
+            {heading}
           </h2>
         )}
       </Container>
@@ -368,12 +393,14 @@ function ProjectsBlock({ data }: { data: Record<string, unknown> }) {
 }
 
 function TestimonialsBlock({ data }: { data: Record<string, unknown> }) {
+  const heading = asString(data.heading);
+
   return (
     <section className="py-24">
       <Container>
-        {data.heading && (
+        {heading && (
           <h2 className="mb-16 font-heading text-3xl font-bold tracking-tight text-primary">
-            {data.heading as string}
+            {heading}
           </h2>
         )}
       </Container>
@@ -385,7 +412,6 @@ const blockComponents: Record<
   string,
   React.ComponentType<{ data: Record<string, unknown> }>
 > = {
-  hero: HeroBlock,
   text: TextBlock,
   cards: CardsBlock,
   cta: CTABlock,

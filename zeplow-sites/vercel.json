@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter parent build",
+  "outputDirectory": "apps/parent/out"
+}

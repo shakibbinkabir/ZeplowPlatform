@@ -4,7 +4,11 @@
       "Bash(php artisan:*)",
       "Bash(pnpm install:*)",
       "Bash(pnpm ls:*)",
-      "Bash(pnpm dev:parent)"
+      "Bash(pnpm dev:parent)",
+      "Read(//c/Users/shaki/Desktop/Zeplow/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\shaki\\Desktop\\Zeplow\\Sans"
     ]
   }
 }

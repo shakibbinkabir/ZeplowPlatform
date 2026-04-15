@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "installCommand": "cd zeplow-sites && pnpm install --frozen-lockfile",
+  "buildCommand": "cd zeplow-sites/apps/parent && pnpm build",
+  "outputDirectory": "zeplow-sites/apps/parent/out"
+}
