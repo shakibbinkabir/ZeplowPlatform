@@ -7,11 +7,96 @@ interface ContentRendererProps {
   siteKey: string;
 }
 
-function HeroBlock({ data }: { data: Record<string, unknown> }) {
+function getHeroBackground(
+  data: Record<string, unknown>,
+  siteKey: string
+): string | null {
+  const explicitImageKeys = [
+    'background_image',
+    'backgroundImage',
+    'hero_image',
+    'heroImage',
+    'image',
+  ];
+
+  for (const key of explicitImageKeys) {
+    const value = data[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  if (siteKey !== 'parent') {
+    return null;
+  }
+
+  const heading = String(data.heading || '').toLowerCase();
+
+  if (heading.includes('story. systems. ventures')) {
+    return 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=2400&q=80';
+  }
+
+  if (heading.includes('about')) {
+    return 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=2400&q=80';
+  }
+
+  if (heading.includes('our ventures')) {
+    return 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=2400&q=80';
+  }
+
+  if (heading.includes('insights')) {
+    return 'https://images.unsplash.com/photo-1499750310107-5fef28a66643?auto=format&fit=crop&w=2400&q=80';
+  }
+
+  if (heading.includes('narrative')) {
+    return 'https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&w=2400&q=80';
+  }
+
+  if (heading.includes('logic')) {
+    return 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=2400&q=80';
+  }
+
+  if (heading.includes('careers')) {
+    return 'https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=2400&q=80';
+  }
+
+  if (heading.includes('contact') || heading.includes('get in touch')) {
+    return 'https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=2400&q=80';
+  }
+
+  return 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=2400&q=80';
+}
+
+function HeroBlock({
+  data,
+  siteKey,
+}: {
+  data: Record<string, unknown>;
+  siteKey: string;
+}) {
+  const backgroundImage = getHeroBackground(data, siteKey);
+
   return (
     <section className="relative flex min-h-[85vh] items-center bg-primary pt-20">
-      {/* Subtle gradient overlay */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary to-primary/80" />
+      {backgroundImage && (
+        <img
+          src={backgroundImage}
+          alt=""
+          aria-hidden="true"
+          width={2400}
+          height={1600}
+          loading="eager"
+          fetchPriority="high"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
+      <div
+        className={`absolute inset-0 ${
+          backgroundImage
+            ? 'bg-gradient-to-br from-primary/90 via-primary/85 to-primary/70'
+            : 'bg-gradient-to-br from-primary via-primary to-primary/80'
+        }`}
+      />
       <Container className="relative z-10 py-24">
         <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">
           Zeplow
@@ -314,10 +399,20 @@ const blockComponents: Record<
   testimonials: TestimonialsBlock,
 };
 
-export function ContentRenderer({ blocks }: ContentRendererProps) {
+export function ContentRenderer({ blocks, siteKey }: ContentRendererProps) {
   return (
     <>
       {blocks.map((block, index) => {
+        if (block.type === 'hero') {
+          return (
+            <HeroBlock
+              key={`${block.type}-${index}`}
+              data={block.data}
+              siteKey={siteKey}
+            />
+          );
+        }
+
         const Component = blockComponents[block.type];
         if (!Component) {
           if (process.env.NODE_ENV === 'development') {

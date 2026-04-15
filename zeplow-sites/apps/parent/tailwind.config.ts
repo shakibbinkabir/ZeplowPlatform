@@ -15,8 +15,8 @@ const config: Config = {
         accent: '#ff6f59',
       },
       fontFamily: {
-        heading: ['var(--font-playfair)', 'Georgia', 'serif'],
-        body: ['var(--font-manrope)', 'system-ui', 'sans-serif'],
+        heading: ['var(--font-poppins)', 'system-ui', 'sans-serif'],
+        body: ['var(--font-poppins)', 'system-ui', 'sans-serif'],
       },
     },
   },

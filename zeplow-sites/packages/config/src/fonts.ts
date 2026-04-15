@@ -1,14 +1,14 @@
 export const fonts = {
   parent: {
-    heading: 'Playfair Display',
-    body: 'Manrope',
+    heading: 'Poppins',
+    body: 'Poppins',
   },
   narrative: {
-    heading: 'Playfair Display',
-    body: 'Manrope',
+    heading: 'Poppins',
+    body: 'Poppins',
   },
   logic: {
-    heading: 'JetBrains Mono',
-    body: 'Inter',
+    heading: 'Poppins',
+    body: 'Poppins',
   },
 } as const;

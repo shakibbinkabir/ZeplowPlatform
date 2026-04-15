@@ -1,25 +1,15 @@
 import { getSiteConfig } from '@zeplow/api';
 import { Navigation, Footer } from '@zeplow/ui';
-import localFont from 'next/font/local';
+import { Poppins } from 'next/font/google';
 import type { Metadata } from 'next';
 import './globals.css';
 
 const SITE_KEY = 'parent';
 
-const playfair = localFont({
-  src: '../public/fonts/PlayfairDisplay-Bold.woff2',
-  variable: '--font-playfair',
-  display: 'swap',
-});
-
-const manrope = localFont({
-  src: [
-    { path: '../public/fonts/Manrope-Regular.woff2', weight: '400' },
-    { path: '../public/fonts/Manrope-Medium.woff2', weight: '500' },
-    { path: '../public/fonts/Manrope-SemiBold.woff2', weight: '600' },
-    { path: '../public/fonts/Manrope-Bold.woff2', weight: '700' },
-  ],
-  variable: '--font-manrope',
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-poppins',
   display: 'swap',
 });
 
@@ -42,7 +32,7 @@ export default async function RootLayout({
   const config = await getSiteConfig(SITE_KEY);
 
   return (
-    <html lang="en" className={`${playfair.variable} ${manrope.variable}`}>
+    <html lang="en" className={poppins.variable}>
       <body className="bg-background text-text font-body antialiased">
         <Navigation
           siteName={config.site_name}
