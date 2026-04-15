@@ -381,7 +381,7 @@ Each page's `content` field is a Filament Repeater with a Block type selector. E
 | site_id | Select (relationship) | required, unique | One config per site |
 | nav_items | Repeater | required | label (text), url (text), is_external (toggle) |
 | footer_links | Repeater | nullable | group_title (text), links (Repeater: label, url) |
-| footer_text | TextInput | nullable | "© 2026 Zeplow LTD." |
+| footer_text | TextInput | nullable | "© 2026 Zeplow LLC." |
 | cta_text | TextInput | nullable | "Book a Heartbeat Review" |
 | cta_url | TextInput | nullable | "/contact" |
 | social_links | KeyValue | nullable | { linkedin: "...", instagram: "...", whatsapp: "..." } |
@@ -587,7 +587,7 @@ Response:
       ]
     }
   ],
-  "footer_text": "© 2026 Zeplow LTD. All rights reserved.",
+  "footer_text": "© 2026 Zeplow LLC. All rights reserved.",
   "cta_text": "Book a Heartbeat Review",
   "cta_url": "/contact",
   "social_links": {

@@ -1059,7 +1059,7 @@ Example projects to seed (adapt from actual Narrative work or create representat
 | Field | Value |
 |:---|:---|
 | nav_items | About (/about), Services (/services), Work (/work), Process (/process), Insights (/insights), Contact (/contact) |
-| footer_text | © 2026 Zeplow LTD. All rights reserved. |
+| footer_text | © 2026 Zeplow LLC. All rights reserved. |
 | cta_text | Book a Heartbeat Review |
 | cta_url | /contact |
 | social_links | linkedin, instagram, whatsapp URLs |

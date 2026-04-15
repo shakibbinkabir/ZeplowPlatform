@@ -606,7 +606,7 @@ The `config` JSON column in `site_configs` holds:
       ]
     }
   ],
-  "footer_text": "© 2026 Zeplow LTD. All rights reserved.",
+  "footer_text": "© 2026 Zeplow LLC. All rights reserved.",
   "cta_text": "Book a Heartbeat Review",
   "cta_url": "/contact",
   "social_links": {
@@ -1025,7 +1025,7 @@ Returns the full configuration for a site: navigation, footer, CTA, social links
       ]
     }
   ],
-  "footer_text": "© 2026 Zeplow LTD. All rights reserved.",
+  "footer_text": "© 2026 Zeplow LLC. All rights reserved.",
   "cta_text": "Book a Heartbeat Review",
   "cta_url": "/contact",
   "social_links": {
@@ -2223,7 +2223,7 @@ class ContentSyncController extends Controller
     "tagline": "Stories that sell.",
     "nav_items": [...],
     "footer_links": [...],
-    "footer_text": "© 2026 Zeplow LTD. All rights reserved.",
+    "footer_text": "© 2026 Zeplow LLC. All rights reserved.",
     "cta_text": "Book a Heartbeat Review",
     "cta_url": "/contact",
     "social_links": {...},

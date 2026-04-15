@@ -40,7 +40,7 @@ const parentConfig: SiteConfig = {
       ],
     },
   ],
-  footer_text: '\u00a9 2026 Zeplow LTD. All rights reserved.',
+  footer_text: '\u00a9 2026 Zeplow LLC. All rights reserved.',
   cta_text: 'Get in Touch',
   cta_url: '/contact',
   social_links: {

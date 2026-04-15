@@ -1001,7 +1001,7 @@ Each project must include `challenge`, `solution`, `outcome`, and `images` for t
 | Field | Value |
 |:---|:---|
 | nav_items | About (/about), Services (/services), Work (/work), Process (/process), Insights (/insights), Contact (/contact) |
-| footer_text | © 2026 Zeplow LTD. All rights reserved. |
+| footer_text | © 2026 Zeplow LLC. All rights reserved. |
 | cta_text | Book a Systems Audit |
 | cta_url | /contact |
 | social_links | linkedin, instagram, whatsapp URLs |

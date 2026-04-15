@@ -387,7 +387,7 @@ CREATE TABLE site_configs (
     site_id BIGINT UNSIGNED NOT NULL UNIQUE,
     nav_items JSON NOT NULL,                    -- Array of {label, url, is_external}
     footer_links JSON NULL,                     -- Array of {group_title, links: [{label, url}]}
-    footer_text VARCHAR(255) NULL,              -- "© 2026 Zeplow LTD."
+    footer_text VARCHAR(255) NULL,              -- "© 2026 Zeplow LLC."
     cta_text VARCHAR(255) NULL,                 -- "Book a Heartbeat Review"
     cta_url VARCHAR(255) NULL,                  -- "/contact"
     social_links JSON NULL,                     -- {linkedin: "...", instagram: "...", whatsapp: "..."}
@@ -965,7 +965,7 @@ No models use soft deletes in V1. When content is deleted in Filament, it is per
 | `site_id` | Select (relationship) | required, unique | One config per site |
 | `nav_items` | Repeater | required | Sub-fields: label (TextInput), url (TextInput), is_external (Toggle) |
 | `footer_links` | Repeater | nullable | Sub-fields: group_title (TextInput), links (Repeater: label, url) |
-| `footer_text` | TextInput | nullable | "© 2026 Zeplow LTD." |
+| `footer_text` | TextInput | nullable | "© 2026 Zeplow LLC." |
 | `cta_text` | TextInput | nullable | "Book a Heartbeat Review" |
 | `cta_url` | TextInput | nullable | "/contact" |
 | `social_links` | KeyValue | nullable | { linkedin: "...", instagram: "...", whatsapp: "..." } |

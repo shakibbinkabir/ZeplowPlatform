@@ -1274,7 +1274,7 @@ This section defines the exact content that must be created in the CMS (cms.zepl
 | Field | Value |
 |:---|:---|
 | nav_items | About (/about), Ventures (/ventures), Insights (/insights), Careers (/careers), Contact (/contact) |
-| footer_text | © 2026 Zeplow LTD. All rights reserved. |
+| footer_text | © 2026 Zeplow LLC. All rights reserved. |
 | cta_text | Get in Touch |
 | cta_url | /contact |
 | social_links | linkedin, instagram, whatsapp URLs |
