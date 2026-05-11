@@ -76,51 +76,32 @@ function HeroBlock({ data }: { data: Record<string, unknown> }) {
         }}
       />
 
+      {/* Hero text paints synchronously in SSR — no motion on the LCP element.
+          Lighthouse counts the heading the moment HTML is parsed, not after a
+          fade-in completes. Below-fold sections still animate on scroll. */}
       <Container className="relative">
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={staggerContainer}
-        >
-          <motion.p
-            variants={fadeUp}
-            transition={fadeUpTransition}
-            className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent"
-          >
-            // zeplow.logic
-          </motion.p>
-          <motion.h1
-            variants={fadeUp}
-            transition={fadeUpTransition}
-            className="mt-6 max-w-4xl font-heading text-4xl font-bold leading-[1.1] tracking-tight text-background md:text-5xl lg:text-6xl"
-          >
-            {heading}
-          </motion.h1>
-          {subheading && (
-            <motion.p
-              variants={fadeUp}
-              transition={fadeUpTransition}
-              className="mt-6 max-w-2xl text-lg leading-relaxed text-background/60 md:text-xl"
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">
+          // zeplow.logic
+        </p>
+        <h1 className="mt-6 max-w-4xl font-heading text-4xl font-bold leading-[1.1] tracking-tight text-background md:text-5xl lg:text-6xl">
+          {heading}
+        </h1>
+        {subheading && (
+          <p className="mt-6 max-w-2xl text-lg leading-relaxed text-background/70 md:text-xl">
+            {subheading}
+          </p>
+        )}
+        {buttonText && buttonUrl && (
+          <div className="mt-10">
+            <a
+              href={buttonUrl}
+              className="inline-flex items-center gap-2 rounded-sm bg-accent px-7 py-3.5 font-mono text-sm font-medium text-primary transition-colors hover:bg-accent/90"
             >
-              {subheading}
-            </motion.p>
-          )}
-          {buttonText && buttonUrl && (
-            <motion.div
-              variants={fadeUp}
-              transition={fadeUpTransition}
-              className="mt-10"
-            >
-              <a
-                href={buttonUrl}
-                className="inline-flex items-center gap-2 rounded-sm bg-accent px-7 py-3.5 font-mono text-sm font-medium text-primary transition-colors hover:bg-accent/90"
-              >
-                {buttonText}
-                <span aria-hidden>→</span>
-              </a>
-            </motion.div>
-          )}
-        </motion.div>
+              {buttonText}
+              <span aria-hidden>→</span>
+            </a>
+          </div>
+        )}
       </Container>
     </section>
   );
@@ -210,13 +191,13 @@ function CardsBlock({ data }: { data: Record<string, unknown> }) {
               transition={fadeUpTransition}
               className="group relative border border-text/10 bg-white p-6 transition-colors duration-200 hover:border-accent md:p-8"
             >
-              <span className="font-mono text-[11px] text-text/30">
+              <span className="font-mono text-[11px] font-bold text-primary/55">
                 {String(index + 1).padStart(2, '0')}
               </span>
               <h3 className="mt-2 font-heading text-base font-bold uppercase tracking-[0.04em] text-primary md:text-lg">
                 {card.title}
               </h3>
-              <p className="mt-3 text-[14px] leading-[1.7] text-text/60">
+              <p className="mt-3 text-[14px] leading-[1.7] text-text/75">
                 {card.description}
               </p>
               {card.url && (
@@ -340,7 +321,7 @@ function StatsBlock({ data }: { data: Record<string, unknown> }) {
               <p className="font-mono text-3xl font-bold tracking-tight text-accent md:text-4xl">
                 <AnimatedStatValue value={stat.value} />
               </p>
-              <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.14em] text-text/40">
+              <p className="mt-2 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-text/65">
                 {stat.label}
               </p>
             </motion.div>
