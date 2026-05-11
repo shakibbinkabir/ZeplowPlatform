@@ -1,5 +1,6 @@
 import { getPage } from '@zeplow/api';
-import { ContentRenderer, ContactForm, Container } from '@zeplow/ui';
+import { ContactForm, Container } from '@zeplow/ui';
+import { LogicContentRenderer } from '../../components/LogicContentRenderer';
 import { AuditCTA } from '../../components/AuditCTA';
 import type { Metadata } from 'next';
 
@@ -18,7 +19,7 @@ export default async function ContactPage() {
 
   return (
     <main>
-      <ContentRenderer blocks={page.content} siteKey={SITE_KEY} />
+      <LogicContentRenderer blocks={page.content} />
 
       <section className="pb-16">
         <Container narrow>

@@ -1,5 +1,5 @@
 import { getPage } from '@zeplow/api';
-import { ContentRenderer } from '@zeplow/ui';
+import { LogicContentRenderer } from '../../components/LogicContentRenderer';
 import type { Metadata } from 'next';
 
 const SITE_KEY = 'logic';
@@ -22,7 +22,7 @@ export default async function ServicesPage() {
 
   return (
     <main>
-      <ContentRenderer blocks={page.content} siteKey={SITE_KEY} />
+      <LogicContentRenderer blocks={page.content} />
     </main>
   );
 }

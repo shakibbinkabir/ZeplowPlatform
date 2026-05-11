@@ -12,5 +12,15 @@ class DatabaseSeeder extends Seeder
             SiteSeeder::class,
             UserSeeder::class,
         ]);
+
+        // Optional content seeders — run them per-site once the API app exists.
+        // They wrap operations in Model::withoutEvents() so they don't dispatch
+        // failed sync jobs while the API is missing.
+        //
+        // Run manually with:
+        //   php artisan db:seed --class=Database\\Seeders\\LogicContentSeeder
+        //
+        // Or uncomment below to include in the default seed run:
+        // $this->call(LogicContentSeeder::class);
     }
 }

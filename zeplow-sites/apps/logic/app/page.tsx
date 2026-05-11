@@ -5,12 +5,12 @@ import {
   getSiteConfig,
 } from '@zeplow/api';
 import {
-  ContentRenderer,
   ProjectCard,
   TestimonialCard,
   OrganizationSchema,
   Container,
 } from '@zeplow/ui';
+import { LogicContentRenderer } from '../components/LogicContentRenderer';
 import type { Metadata } from 'next';
 
 const SITE_KEY = 'logic';
@@ -49,7 +49,7 @@ export default async function HomePage() {
         sameAs={Object.values(config.social_links)}
       />
 
-      <ContentRenderer blocks={page.content} siteKey={SITE_KEY} />
+      <LogicContentRenderer blocks={page.content} />
 
       {featuredProjects.length > 0 && (
         <section className="py-24 md:py-32">

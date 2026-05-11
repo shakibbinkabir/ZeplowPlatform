@@ -10,6 +10,7 @@ const jetbrains = localFont({
   src: '../public/fonts/JetBrainsMono-Bold.woff2',
   variable: '--font-jetbrains',
   display: 'swap',
+  preload: true,
 });
 
 const inter = localFont({
@@ -21,6 +22,7 @@ const inter = localFont({
   ],
   variable: '--font-inter',
   display: 'swap',
+  preload: true,
 });
 
 export const metadata: Metadata = {
@@ -46,6 +48,32 @@ export default async function RootLayout({
 
   return (
     <html lang="en" className={`${jetbrains.variable} ${inter.variable}`}>
+      <head>
+        {/* Belt-and-suspenders preload — next/font/local doesn't always emit
+            these reliably for App Router CSS-variable-only usage. Manual hints
+            ensure the LCP heading font is fetched on the critical path. */}
+        <link
+          rel="preload"
+          href="/fonts/JetBrainsMono-Bold.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/Inter-Regular.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/Inter-SemiBold.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body className="bg-background text-text font-body antialiased">
         <Navigation
           siteName={config.site_name}

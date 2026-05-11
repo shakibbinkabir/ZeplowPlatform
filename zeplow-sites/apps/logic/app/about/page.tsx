@@ -1,5 +1,6 @@
 import { getPage, getTeamMembers } from '@zeplow/api';
-import { ContentRenderer, TeamCard, Container } from '@zeplow/ui';
+import { TeamCard, Container } from '@zeplow/ui';
+import { LogicContentRenderer } from '../../components/LogicContentRenderer';
 import type { Metadata } from 'next';
 
 const SITE_KEY = 'logic';
@@ -25,7 +26,7 @@ export default async function AboutPage() {
 
   return (
     <main>
-      <ContentRenderer blocks={page.content} siteKey={SITE_KEY} />
+      <LogicContentRenderer blocks={page.content} />
 
       {team.length > 0 && (
         <section className="border-t border-text/10 py-24 md:py-32">

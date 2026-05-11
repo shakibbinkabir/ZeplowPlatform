@@ -1,5 +1,6 @@
 import { getPage, getProjects } from '@zeplow/api';
-import { ContentRenderer, ProjectCard, Container } from '@zeplow/ui';
+import { ProjectCard, Container } from '@zeplow/ui';
+import { LogicContentRenderer } from '../../components/LogicContentRenderer';
 import type { Metadata } from 'next';
 
 const SITE_KEY = 'logic';
@@ -25,7 +26,7 @@ export default async function WorkPage() {
 
   return (
     <main>
-      <ContentRenderer blocks={page.content} siteKey={SITE_KEY} />
+      <LogicContentRenderer blocks={page.content} />
 
       <section className="pb-24 md:pb-32">
         <Container>
