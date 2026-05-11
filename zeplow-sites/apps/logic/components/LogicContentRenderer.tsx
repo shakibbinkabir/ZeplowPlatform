@@ -1,9 +1,30 @@
+'use client';
+
+import { motion, useInView, useMotionValue, useSpring } from 'framer-motion';
+import { useEffect, useRef } from 'react';
 import type { ContentBlock } from '@zeplow/api';
 import { Container } from '@zeplow/ui';
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
+
+// Shared motion variants — restrained, "data transition" feel per PRD §7.5.
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 },
+};
+
+const fadeUpTransition = { duration: 0.5, ease: [0.22, 0.61, 0.36, 1] as const };
+
+// Stagger container for card grids. 60ms delay between children — slow enough
+// to read as "data populating," fast enough not to feel laggy.
+const staggerContainer = {
+  hidden: {},
+  visible: {
+    transition: { staggerChildren: 0.06, delayChildren: 0.05 },
+  },
+};
 
 // Schematic corner brackets — used by hero and CTA blocks to reinforce the
 // "blueprint" aesthetic per Logic_Site_PRD.md §2.4.
@@ -41,10 +62,13 @@ function HeroBlock({ data }: { data: Record<string, unknown> }) {
     <section className="relative isolate bg-primary pt-32 pb-24 md:pt-40 md:pb-32">
       <CornerBrackets tone="accent" />
 
-      {/* faint blueprint grid */}
-      <div
+      {/* faint blueprint grid — slow drift in on mount for a "rendering" feel */}
+      <motion.div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.07]"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 0.07 }}
+        transition={{ duration: 1.2, ease: 'easeOut' }}
+        className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
             'linear-gradient(to right, #00b894 1px, transparent 1px), linear-gradient(to bottom, #00b894 1px, transparent 1px)',
@@ -53,28 +77,50 @@ function HeroBlock({ data }: { data: Record<string, unknown> }) {
       />
 
       <Container className="relative">
-        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">
-          // zeplow.logic
-        </p>
-        <h1 className="mt-6 max-w-4xl font-heading text-4xl font-bold leading-[1.1] tracking-tight text-background md:text-5xl lg:text-6xl">
-          {heading}
-        </h1>
-        {subheading && (
-          <p className="mt-6 max-w-2xl text-lg leading-relaxed text-background/60 md:text-xl">
-            {subheading}
-          </p>
-        )}
-        {buttonText && buttonUrl && (
-          <div className="mt-10">
-            <a
-              href={buttonUrl}
-              className="inline-flex items-center gap-2 rounded-sm bg-accent px-7 py-3.5 font-mono text-sm font-medium text-primary transition-colors hover:bg-accent/90"
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={staggerContainer}
+        >
+          <motion.p
+            variants={fadeUp}
+            transition={fadeUpTransition}
+            className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent"
+          >
+            // zeplow.logic
+          </motion.p>
+          <motion.h1
+            variants={fadeUp}
+            transition={fadeUpTransition}
+            className="mt-6 max-w-4xl font-heading text-4xl font-bold leading-[1.1] tracking-tight text-background md:text-5xl lg:text-6xl"
+          >
+            {heading}
+          </motion.h1>
+          {subheading && (
+            <motion.p
+              variants={fadeUp}
+              transition={fadeUpTransition}
+              className="mt-6 max-w-2xl text-lg leading-relaxed text-background/60 md:text-xl"
             >
-              {buttonText}
-              <span aria-hidden>→</span>
-            </a>
-          </div>
-        )}
+              {subheading}
+            </motion.p>
+          )}
+          {buttonText && buttonUrl && (
+            <motion.div
+              variants={fadeUp}
+              transition={fadeUpTransition}
+              className="mt-10"
+            >
+              <a
+                href={buttonUrl}
+                className="inline-flex items-center gap-2 rounded-sm bg-accent px-7 py-3.5 font-mono text-sm font-medium text-primary transition-colors hover:bg-accent/90"
+              >
+                {buttonText}
+                <span aria-hidden>→</span>
+              </a>
+            </motion.div>
+          )}
+        </motion.div>
       </Container>
     </section>
   );
@@ -87,20 +133,28 @@ function TextBlock({ data }: { data: Record<string, unknown> }) {
   return (
     <section className="py-20 md:py-28">
       <Container narrow>
-        {heading && (
-          <div className="mb-8 flex items-baseline gap-3 border-b border-text/10 pb-3">
-            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">
-              //
-            </span>
-            <h2 className="font-heading text-2xl font-bold tracking-tight text-primary md:text-3xl">
-              {heading}
-            </h2>
-          </div>
-        )}
-        <div
-          className="prose-custom text-[17px] leading-[1.85] text-text/75"
-          dangerouslySetInnerHTML={{ __html: body }}
-        />
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: '-80px' }}
+          variants={fadeUp}
+          transition={fadeUpTransition}
+        >
+          {heading && (
+            <div className="mb-8 flex items-baseline gap-3 border-b border-text/10 pb-3">
+              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">
+                //
+              </span>
+              <h2 className="font-heading text-2xl font-bold tracking-tight text-primary md:text-3xl">
+                {heading}
+              </h2>
+            </div>
+          )}
+          <div
+            className="prose-custom text-[17px] leading-[1.85] text-text/75"
+            dangerouslySetInnerHTML={{ __html: body }}
+          />
+        </motion.div>
       </Container>
     </section>
   );
@@ -126,19 +180,34 @@ function CardsBlock({ data }: { data: Record<string, unknown> }) {
     <section className="py-20 md:py-28">
       <Container>
         {heading && (
-          <div className="mb-12 flex items-baseline gap-3 border-b border-text/10 pb-3">
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: '-80px' }}
+            variants={fadeUp}
+            transition={fadeUpTransition}
+            className="mb-12 flex items-baseline gap-3 border-b border-text/10 pb-3"
+          >
             <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">
               //
             </span>
             <h2 className="font-heading text-2xl font-bold tracking-tight text-primary md:text-3xl">
               {heading}
             </h2>
-          </div>
+          </motion.div>
         )}
-        <div className={`grid gap-4 ${gridCols}`}>
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: '-60px' }}
+          variants={staggerContainer}
+          className={`grid gap-4 ${gridCols}`}
+        >
           {cards.map((card, index) => (
-            <article
+            <motion.article
               key={card.title}
+              variants={fadeUp}
+              transition={fadeUpTransition}
               className="group relative border border-text/10 bg-white p-6 transition-colors duration-200 hover:border-accent md:p-8"
             >
               <span className="font-mono text-[11px] text-text/30">
@@ -159,9 +228,9 @@ function CardsBlock({ data }: { data: Record<string, unknown> }) {
                   <span aria-hidden>→</span>
                 </a>
               )}
-            </article>
+            </motion.article>
           ))}
-        </div>
+        </motion.div>
       </Container>
     </section>
   );
@@ -176,7 +245,13 @@ function CTABlock({ data }: { data: Record<string, unknown> }) {
   return (
     <section className="py-20 md:py-28">
       <Container narrow>
-        <aside className="relative overflow-hidden bg-primary px-8 py-12 text-background md:px-12 md:py-16">
+        <motion.aside
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-80px' }}
+          transition={fadeUpTransition}
+          className="relative overflow-hidden bg-primary px-8 py-12 text-background md:px-12 md:py-16"
+        >
           <CornerBrackets tone="accent" />
           <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">
             // next step
@@ -198,10 +273,46 @@ function CTABlock({ data }: { data: Record<string, unknown> }) {
               <span aria-hidden>→</span>
             </a>
           )}
-        </aside>
+        </motion.aside>
       </Container>
     </section>
   );
+}
+
+// Stat value with count-up — parses a leading integer, animates from 0 to it,
+// preserves any non-numeric suffix (k, +, %, etc.) verbatim. If no leading
+// integer (e.g. "99.9%"), shows the value as-is without animation.
+function AnimatedStatValue({ value }: { value: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: '-60px' });
+
+  const match = value.match(/^(-?\d+)(.*)$/);
+  const target = match ? parseInt(match[1], 10) : null;
+  const suffix = match ? match[2] : '';
+
+  const mv = useMotionValue(0);
+  const spring = useSpring(mv, { duration: 1200, bounce: 0 });
+
+  useEffect(() => {
+    if (!inView || target === null) return;
+    mv.set(target);
+  }, [inView, target, mv]);
+
+  useEffect(() => {
+    if (target === null) return;
+    return spring.on('change', (latest) => {
+      if (ref.current) {
+        ref.current.textContent = `${Math.round(latest)}${suffix}`;
+      }
+    });
+  }, [spring, suffix, target]);
+
+  // Non-numeric values render as-is without animation
+  if (target === null) {
+    return <span ref={ref}>{value}</span>;
+  }
+
+  return <span ref={ref}>0{suffix}</span>;
 }
 
 function StatsBlock({ data }: { data: Record<string, unknown> }) {
@@ -213,18 +324,28 @@ function StatsBlock({ data }: { data: Record<string, unknown> }) {
   return (
     <section className="border-y border-text/10 py-16 md:py-20">
       <Container>
-        <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
+        <motion.div
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: '-60px' }}
+          variants={staggerContainer}
+          className="grid grid-cols-2 gap-8 md:grid-cols-4"
+        >
           {stats.map((stat) => (
-            <div key={stat.label}>
+            <motion.div
+              key={stat.label}
+              variants={fadeUp}
+              transition={fadeUpTransition}
+            >
               <p className="font-mono text-3xl font-bold tracking-tight text-accent md:text-4xl">
-                {stat.value}
+                <AnimatedStatValue value={stat.value} />
               </p>
               <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.14em] text-text/40">
                 {stat.label}
               </p>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </Container>
     </section>
   );

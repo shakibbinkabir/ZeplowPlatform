@@ -1,10 +1,15 @@
+'use client';
+
 import React from 'react';
+import { motion } from 'framer-motion';
 import { getImageUrl } from '@zeplow/api';
 import type { Project } from '@zeplow/api';
 
 interface IncidentReportProps {
   project: Project;
 }
+
+const fadeUpTransition = { duration: 0.5, ease: [0.22, 0.61, 0.36, 1] as const };
 
 function ReportRow({ label, value }: { label: string; value: string }) {
   return (
@@ -38,10 +43,16 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="py-10">
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-80px' }}
+      transition={fadeUpTransition}
+      className="py-10"
+    >
       <SectionHeader index={index} title={title} />
       <div className="mt-6">{children}</div>
-    </section>
+    </motion.section>
   );
 }
 
@@ -52,7 +63,12 @@ export function IncidentReport({ project }: IncidentReportProps) {
   return (
     <article className="mx-auto max-w-3xl px-6 py-24 lg:px-8">
       {/* Header */}
-      <header className="border-b border-text/15 pb-8">
+      <motion.header
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={fadeUpTransition}
+        className="border-b border-text/15 pb-8"
+      >
         <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.14em] text-text/40">
           <span>Incident Report</span>
           <span>
@@ -93,7 +109,7 @@ export function IncidentReport({ project }: IncidentReportProps) {
             </div>
           )}
         </div>
-      </header>
+      </motion.header>
 
       {/* 01 · BOTTLENECK */}
       {project.challenge && (
@@ -169,7 +185,13 @@ export function IncidentReport({ project }: IncidentReportProps) {
       )}
 
       {/* Footer / Live link */}
-      <footer className="mt-12 border-t border-text/15 pt-8">
+      <motion.footer
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, margin: '-40px' }}
+        transition={{ duration: 0.6, ease: 'easeOut' }}
+        className="mt-12 border-t border-text/15 pt-8"
+      >
         <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.14em] text-text/40">
           <span>End of report</span>
           <span>{incidentId}</span>
@@ -186,7 +208,7 @@ export function IncidentReport({ project }: IncidentReportProps) {
             <span aria-hidden>→</span>
           </a>
         )}
-      </footer>
+      </motion.footer>
     </article>
   );
 }
