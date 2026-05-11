@@ -14,8 +14,11 @@ import {
   getMockPage,
   getMockPages,
   getMockProjects,
+  getMockProject,
   getMockTeamMembers,
+  getMockTestimonials,
   getMockBlogPosts,
+  getMockBlogBody,
 } from './mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://api.zeplow.com';
@@ -23,15 +26,17 @@ const USE_MOCK_DATA =
   process.env.NEXT_PUBLIC_ZEPLOW_MOCK_ONLY === '1' ||
   process.env.ZEPLOW_MOCK_ONLY === '1';
 
-function getMockBlogPost(slug: string): BlogPost {
-  const posts = getMockBlogPosts();
+function mockBlogPost(siteKey: string, slug: string): BlogPost {
+  const posts = getMockBlogPosts(siteKey);
   const existing = posts.find((post) => post.slug === slug);
+  const body =
+    getMockBlogBody(siteKey, slug) ??
+    '<p>This insight is currently unavailable in offline mode. Please check back soon.</p>';
 
   if (existing) {
     return {
       ...existing,
-      body:
-        '<p>This insight is currently unavailable in offline mode. Please check back soon.</p>',
+      body,
       seo: {
         title: `${existing.title} — Zeplow`,
         description:
@@ -50,13 +55,50 @@ function getMockBlogPost(slug: string): BlogPost {
     tags: [],
     author: 'Zeplow',
     published_at: '2026-03-27T00:00:00Z',
-    body:
-      '<p>This insight is currently unavailable in offline mode. Please check back soon.</p>',
+    body,
     seo: {
       title: 'Insight — Zeplow',
       description: 'Thoughts on ventures, narrative, and systems.',
       og_image: null,
     },
+  };
+}
+
+function mockProjectOrStub(siteKey: string, slug: string): Project {
+  const full = getMockProject(siteKey, slug);
+  if (full) return full;
+
+  const list = getMockProjects(siteKey);
+  const item = list.find((p) => p.slug === slug) ?? list[0];
+
+  if (!item) {
+    return {
+      id: 0,
+      slug,
+      title: slug,
+      one_liner: 'Project details are unavailable in offline mode.',
+      client_name: null,
+      industry: null,
+      url: null,
+      images: [],
+      tags: [],
+      featured: false,
+      sort_order: 0,
+      challenge: null,
+      solution: null,
+      outcome: null,
+      tech_stack: [],
+      published_at: '2026-03-27T00:00:00Z',
+    };
+  }
+
+  return {
+    ...item,
+    challenge: null,
+    solution: null,
+    outcome: null,
+    tech_stack: [],
+    published_at: '2026-03-27T00:00:00Z',
   };
 }
 
@@ -138,53 +180,13 @@ export async function getProject(
   slug: string
 ): Promise<Project> {
   if (USE_MOCK_DATA) {
-    const list = getMockProjects(siteKey);
-    const item = list.find((p) => p.slug === slug) ?? list[0];
-
-    if (!item) {
-      return {
-        id: 0,
-        slug,
-        title: slug,
-        one_liner: 'Project details are unavailable in offline mode.',
-        client_name: null,
-        industry: null,
-        url: null,
-        images: [],
-        tags: [],
-        featured: false,
-        sort_order: 0,
-        challenge: null,
-        solution: null,
-        outcome: null,
-        tech_stack: [],
-        published_at: '2026-03-27T00:00:00Z',
-      };
-    }
-
-    return {
-      ...item,
-      challenge: null,
-      solution: null,
-      outcome: null,
-      tech_stack: [],
-      published_at: '2026-03-27T00:00:00Z',
-    };
+    return mockProjectOrStub(siteKey, slug);
   }
 
   try {
     return await fetchApi<Project>(`/sites/v1/${siteKey}/projects/${slug}`);
   } catch {
-    const list = getMockProjects(siteKey);
-    const item = list.find((p) => p.slug === slug) ?? list[0];
-    return {
-      ...item,
-      challenge: null,
-      solution: null,
-      outcome: null,
-      tech_stack: [],
-      published_at: '2026-03-27T00:00:00Z',
-    };
+    return mockProjectOrStub(siteKey, slug);
   }
 }
 
@@ -194,7 +196,7 @@ export async function getBlogPosts(
   params?: { tag?: string; limit?: number }
 ): Promise<BlogPostListItem[]> {
   if (USE_MOCK_DATA) {
-    return getMockBlogPosts();
+    return getMockBlogPosts(siteKey);
   }
 
   try {
@@ -206,7 +208,7 @@ export async function getBlogPosts(
       `/sites/v1/${siteKey}/blog${qs ? `?${qs}` : ''}`
     );
   } catch {
-    return getMockBlogPosts();
+    return getMockBlogPosts(siteKey);
   }
 }
 
@@ -215,13 +217,13 @@ export async function getBlogPost(
   slug: string
 ): Promise<BlogPost> {
   if (USE_MOCK_DATA) {
-    return getMockBlogPost(slug);
+    return mockBlogPost(siteKey, slug);
   }
 
   try {
     return await fetchApi<BlogPost>(`/sites/v1/${siteKey}/blog/${slug}`);
   } catch {
-    return getMockBlogPost(slug);
+    return mockBlogPost(siteKey, slug);
   }
 }
 
@@ -230,13 +232,13 @@ export async function getTestimonials(
   siteKey: string
 ): Promise<Testimonial[]> {
   if (USE_MOCK_DATA) {
-    return [];
+    return getMockTestimonials(siteKey);
   }
 
   try {
     return await fetchApi<Testimonial[]>(`/sites/v1/${siteKey}/testimonials`);
   } catch {
-    return [];
+    return getMockTestimonials(siteKey);
   }
 }
 

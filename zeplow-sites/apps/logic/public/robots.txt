@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://logic.zeplow.com/sitemap.xml

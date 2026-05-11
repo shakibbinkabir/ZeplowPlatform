@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: #081f1a;
+    --color-background: #f4f4f4;
+    --color-text: #081f1a;
+    --color-accent: #00b894;
+    --color-error: #ff7675;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgba(0, 184, 148, 0.18);
+    color: #081f1a;
+  }
+}
+
+/* Rich text content from CMS — Logic aesthetic: monospace headings, generous whitespace */
+.prose-custom h2 {
+  @apply font-heading text-2xl font-bold tracking-tight text-primary mt-12 mb-4;
+}
+
+.prose-custom h3 {
+  @apply font-heading text-xl font-bold tracking-tight text-primary mt-8 mb-3;
+}
+
+.prose-custom p {
+  @apply mb-6 leading-[1.8];
+}
+
+.prose-custom a {
+  @apply text-accent underline underline-offset-4 decoration-accent/40 hover:decoration-accent transition-colors;
+}
+
+.prose-custom ul {
+  @apply mb-6 ml-6 list-disc marker:text-text/30;
+}
+
+.prose-custom ol {
+  @apply mb-6 ml-6 list-decimal marker:text-text/30;
+}
+
+.prose-custom li {
+  @apply mb-2 leading-[1.8];
+}
+
+.prose-custom blockquote {
+  @apply border-l-2 border-accent/40 pl-6 italic text-text/60 my-8;
+}
+
+.prose-custom strong {
+  @apply font-semibold text-text;
+}
+
+.prose-custom code {
+  @apply font-mono text-sm bg-primary/5 text-primary px-1.5 py-0.5 rounded;
+}
+
+.prose-custom pre {
+  @apply font-mono text-sm bg-primary text-background p-4 rounded my-6 overflow-x-auto;
+}
