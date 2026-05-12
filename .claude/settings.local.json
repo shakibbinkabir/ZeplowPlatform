@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -f http://localhost:8001/health)",
+      "Bash(curl -s http://localhost:8001/health)",
+      "Bash(curl -s http://localhost:8001/sites/v1/logic/config)",
+      "Bash(curl -s http://localhost:8001/sites/v1/logic/pages)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} pages: {[p[\\\\\"slug\\\\\"] for p in d]}'\\)\")",
+      "Bash(curl -s http://localhost:8001/sites/v1/logic/pages/home)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'title={d[\\\\\"title\\\\\"]} template={d[\\\\\"template\\\\\"]} blocks={[b[\\\\\"type\\\\\"] for b in d[\\\\\"content\\\\\"]]}'\\)\")",
+      "Bash(curl -s http://localhost:8001/sites/v1/logic/projects)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'meta={d[\\\\\"meta\\\\\"]} data[0].title={d[\\\\\"data\\\\\"][0][\\\\\"title\\\\\"]}'\\)\")",
+      "Bash(curl -s \"http://localhost:8001/sites/v1/logic/projects?featured=true&limit=3\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} featured projects: {[p[\\\\\"slug\\\\\"] for p in d]}'\\)\")",
+      "Bash(curl -s http://localhost:8001/sites/v1/logic/blog)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{d[\\\\\"meta\\\\\"][\\\\\"total\\\\\"]} posts, latest={d[\\\\\"data\\\\\"][0][\\\\\"slug\\\\\"]}'\\)\")",
+      "Bash(curl -s http://localhost:8001/sites/v1/logic/testimonials)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'testimonials: {len\\(d\\)}, names={[t[\\\\\"name\\\\\"] for t in d]}'\\)\")",
+      "Bash(curl -s http://localhost:8001/sites/v1/logic/team)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'team: {len\\(d\\)}, names={[t[\\\\\"name\\\\\"] for t in d]}'\\)\")",
+      "Bash(php -r ' *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8001/sites/v1/garbage/pages)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8001/sites/v1/logic/pages/nonexistent)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8001/sites/v1/logic/blog/nonexistent)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8001/sites/v1/narrative/config)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST -H \"Content-Type: application/json\" -d \"{}\" http://localhost:8001/internal/v1/content/sync)",
+      "Bash(curl -s http://localhost:8001/sites/v1/logic/pages/about)",
+      "Bash(php -r '$d=json_decode\\(file_get_contents\\(\"php://stdin\"\\),true\\); echo \"  title=\" . $d[\"title\"] . PHP_EOL;')",
+      "Bash(curl -s \"http://localhost:8001/sites/v1/logic/projects\")",
+      "Bash(php -r '$d=json_decode\\(file_get_contents\\(\"php://stdin\"\\),true\\); echo \"  total=\" . $d[\"meta\"][\"total\"] . PHP_EOL;')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8001/sites/v1/logic/projects/tututor-ai)",
+      "Bash(curl -s -o /dev/null -w \"API on :8001 after stop: %{http_code} \\(000=down\\)\\\\n\" http://localhost:8001/health)"
+    ]
+  }
+}
