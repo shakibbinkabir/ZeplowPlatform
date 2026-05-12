@@ -115,6 +115,16 @@ async function fetchApi<T>(path: string): Promise<T> {
   return res.json();
 }
 
+// The API returns a bare array when ?limit=N is passed, and a paginated
+// { data, meta } envelope otherwise. Unwrap to a bare array either way.
+function unwrapList<T>(raw: unknown): T[] {
+  if (Array.isArray(raw)) return raw as T[];
+  if (raw && typeof raw === 'object' && Array.isArray((raw as { data?: unknown }).data)) {
+    return (raw as { data: T[] }).data;
+  }
+  return [];
+}
+
 // Site Config
 export async function getSiteConfig(siteKey: string): Promise<SiteConfig> {
   if (USE_MOCK_DATA) {
@@ -167,9 +177,10 @@ export async function getProjects(
     if (params?.featured) searchParams.set('featured', '1');
     if (params?.limit) searchParams.set('limit', String(params.limit));
     const qs = searchParams.toString();
-    return await fetchApi<ProjectListItem[]>(
+    const raw = await fetchApi<unknown>(
       `/sites/v1/${siteKey}/projects${qs ? `?${qs}` : ''}`
     );
+    return unwrapList<ProjectListItem>(raw);
   } catch {
     return getMockProjects(siteKey, params);
   }
@@ -204,9 +215,10 @@ export async function getBlogPosts(
     if (params?.tag) searchParams.set('tag', params.tag);
     if (params?.limit) searchParams.set('limit', String(params.limit));
     const qs = searchParams.toString();
-    return await fetchApi<BlogPostListItem[]>(
+    const raw = await fetchApi<unknown>(
       `/sites/v1/${siteKey}/blog${qs ? `?${qs}` : ''}`
     );
+    return unwrapList<BlogPostListItem>(raw);
   } catch {
     return getMockBlogPosts(siteKey);
   }
