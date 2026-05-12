@@ -102,62 +102,36 @@ function mockProjectOrStub(siteKey: string, slug: string): Project {
   };
 }
 
-// DIAG: temporary verbose logging to debug Cloudflare Pages build-runner fetch
-// behaviour. Remove after mock-mode root cause is identified.
 async function fetchApi<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path}`;
-  const t0 = Date.now();
 
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'zeplow-build-agent',
-      },
-    });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.log(`[fetchApi] NETWORK_ERROR ${url} after ${Date.now() - t0}ms: ${msg}`);
-    throw e;
-  }
-
-  const elapsed = Date.now() - t0;
-  const cfRay = res.headers.get('cf-ray') ?? '-';
-  const contentType = res.headers.get('content-type') ?? '-';
+  const res = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'zeplow-build-agent',
+    },
+  });
 
   if (!res.ok) {
-    console.log(`[fetchApi] HTTP_${res.status} ${url} ${elapsed}ms cf-ray=${cfRay} ct=${contentType}`);
     throw new Error(`API Error: ${res.status} ${res.statusText} for ${url}`);
   }
 
-  const bodyText = await res.text();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(bodyText);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.log(`[fetchApi] JSON_PARSE_FAIL ${url} ${elapsed}ms cf-ray=${cfRay} bytes=${bodyText.length}: ${msg}`);
-    throw e;
-  }
+  const parsed = (await res.json()) as unknown;
 
   // cPanel's Imunify360 WAF returns HTTP 200 with this shape when it
   // blocks an IP it considers automation. The body is valid JSON, just
   // not our API's shape — without this sniff the caller would receive
-  // `{message: "..."}` and crash on .seo.title etc. Throw so the
-  // try/catch fallback in get* wrappers can hand back mock data.
+  // {message: "..."} and crash on .seo.title etc. Throw so the
+  // try/catch fallback in the get* wrappers can hand back mock data.
   if (
     parsed &&
     typeof parsed === 'object' &&
     typeof (parsed as { message?: unknown }).message === 'string' &&
     (parsed as { message: string }).message.toLowerCase().includes('imunify360')
   ) {
-    console.log(`[fetchApi] IMUNIFY360_BLOCK ${url} ${elapsed}ms — falling back to mock`);
     throw new Error(`Imunify360 blocked request to ${url}`);
   }
 
-  console.log(`[fetchApi] HTTP_200 ${url} ${elapsed}ms cf-ray=${cfRay} ct=${contentType} bytes=${bodyText.length}`);
   return parsed as T;
 }
 
