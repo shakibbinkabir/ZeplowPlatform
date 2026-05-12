@@ -132,15 +132,33 @@ async function fetchApi<T>(path: string): Promise<T> {
   }
 
   const bodyText = await res.text();
-  console.log(`[fetchApi] HTTP_200 ${url} ${elapsed}ms cf-ray=${cfRay} ct=${contentType} bytes=${bodyText.length} preview=${JSON.stringify(bodyText.slice(0, 120))}`);
 
+  let parsed: unknown;
   try {
-    return JSON.parse(bodyText) as T;
+    parsed = JSON.parse(bodyText);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.log(`[fetchApi] JSON_PARSE_FAIL ${url}: ${msg}`);
+    console.log(`[fetchApi] JSON_PARSE_FAIL ${url} ${elapsed}ms cf-ray=${cfRay} bytes=${bodyText.length}: ${msg}`);
     throw e;
   }
+
+  // cPanel's Imunify360 WAF returns HTTP 200 with this shape when it
+  // blocks an IP it considers automation. The body is valid JSON, just
+  // not our API's shape — without this sniff the caller would receive
+  // `{message: "..."}` and crash on .seo.title etc. Throw so the
+  // try/catch fallback in get* wrappers can hand back mock data.
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    typeof (parsed as { message?: unknown }).message === 'string' &&
+    (parsed as { message: string }).message.toLowerCase().includes('imunify360')
+  ) {
+    console.log(`[fetchApi] IMUNIFY360_BLOCK ${url} ${elapsed}ms — falling back to mock`);
+    throw new Error(`Imunify360 blocked request to ${url}`);
+  }
+
+  console.log(`[fetchApi] HTTP_200 ${url} ${elapsed}ms cf-ray=${cfRay} ct=${contentType} bytes=${bodyText.length}`);
+  return parsed as T;
 }
 
 // The API returns a bare array when ?limit=N is passed, and a paginated
