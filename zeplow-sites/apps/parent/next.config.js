@@ -2,9 +2,9 @@
 const nextConfig = {
   output: 'export',
   trailingSlash: true,
-  env: {
-    NEXT_PUBLIC_ZEPLOW_MOCK_ONLY: '1',
-  },
+  // No hardcoded env block — Cloudflare Pages env vars flow through.
+  // For local dev without a running API, client.ts falls back to mock-data
+  // via try/catch.
   images: {
     unoptimized: true,
   },
