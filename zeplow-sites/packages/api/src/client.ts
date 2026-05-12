@@ -102,17 +102,45 @@ function mockProjectOrStub(siteKey: string, slug: string): Project {
   };
 }
 
+// DIAG: temporary verbose logging to debug Cloudflare Pages build-runner fetch
+// behaviour. Remove after mock-mode root cause is identified.
 async function fetchApi<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json' },
-  });
+  const t0 = Date.now();
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'zeplow-build-agent',
+      },
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log(`[fetchApi] NETWORK_ERROR ${url} after ${Date.now() - t0}ms: ${msg}`);
+    throw e;
+  }
+
+  const elapsed = Date.now() - t0;
+  const cfRay = res.headers.get('cf-ray') ?? '-';
+  const contentType = res.headers.get('content-type') ?? '-';
 
   if (!res.ok) {
+    console.log(`[fetchApi] HTTP_${res.status} ${url} ${elapsed}ms cf-ray=${cfRay} ct=${contentType}`);
     throw new Error(`API Error: ${res.status} ${res.statusText} for ${url}`);
   }
 
-  return res.json();
+  const bodyText = await res.text();
+  console.log(`[fetchApi] HTTP_200 ${url} ${elapsed}ms cf-ray=${cfRay} ct=${contentType} bytes=${bodyText.length} preview=${JSON.stringify(bodyText.slice(0, 120))}`);
+
+  try {
+    return JSON.parse(bodyText) as T;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log(`[fetchApi] JSON_PARSE_FAIL ${url}: ${msg}`);
+    throw e;
+  }
 }
 
 // The API returns a bare array when ?limit=N is passed, and a paginated
