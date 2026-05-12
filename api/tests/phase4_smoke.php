@@ -28,8 +28,16 @@ function postJson(Kernel $kernel, string $uri, array $body, ?string $bearer = nu
     return $kernel->handle($req);
 }
 
-$validKey   = 'g2JLXsfnef9VpilJjOSM0GvJndcjBRVKTNLuY8ZQtfJrSic6kACOmWMgg8fHQKpH';
+// Plaintext supplied via env so we don't bake it into a tracked file.
+// Set ZEPLOW_TEST_API_KEY in api/.env to the internal-scope key from your local seed.
+$validKey   = env('ZEPLOW_TEST_API_KEY', '');
 $invalidKey = 'this-is-not-a-valid-api-key-at-all-just-garbage-padding-to-64ch';
+
+if ($validKey === '') {
+    echo "  [SKIP] Phase 4 needs ZEPLOW_TEST_API_KEY set in api/.env\n";
+    echo "=== done (partial) ===\n";
+    return;
+}
 
 $validPayload = [
     'site_key'     => 'parent',

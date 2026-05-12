@@ -38,3 +38,14 @@ Thumbs.db
 .env
 .env.backup
 .env.production
+
+# Claude Code local state — contains auto-accepted command history that can
+# capture secrets passed inline (curl bearer tokens, etc.). Keep on disk so
+# Claude's allow-list persists across sessions, but never push to GitHub.
+.claude/settings.local.json
+.claude/projects/
+.claude/scheduled_tasks.lock
+
+# Local plaintext password/secret notes — kept in workspace, never pushed.
+pwd.md
+api/pwd.md

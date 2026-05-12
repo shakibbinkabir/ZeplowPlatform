@@ -32,7 +32,14 @@ $resp = $mw->handle($req, $next);
 out('ValidateApiKey: bad token → 403', $resp->status(), 403);
 
 // 3. ValidateApiKey — good token → next() runs, 200
-$plain = 'g2JLXsfnef9VpilJjOSM0GvJndcjBRVKTNLuY8ZQtfJrSic6kACOmWMgg8fHQKpH';
+// Plaintext supplied via env so we don't bake it into a tracked file.
+// Set ZEPLOW_TEST_API_KEY in api/.env to the internal-scope key from your local seed.
+$plain = env('ZEPLOW_TEST_API_KEY', '');
+if ($plain === '') {
+    echo "  [SKIP] valid-token assertions: ZEPLOW_TEST_API_KEY env var not set\n";
+    echo "=== done (partial) ===\n";
+    return;
+}
 $req = Request::create('/internal/v1/x', 'POST');
 $req->headers->set('Authorization', 'Bearer ' . $plain);
 $resp = $mw->handle($req, $next);

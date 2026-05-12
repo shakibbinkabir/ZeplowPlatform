@@ -275,8 +275,14 @@ $r2 = httpReq($kernel, 'GET', '/sites/v1/parent/pages/home');
 $body2 = json_decode($r2->getContent(), true);
 out('detail cache served stale row', $body2['title'], 'Home');
 
-// Internal sync invalidation should bust the cache
-$key = 'g2JLXsfnef9VpilJjOSM0GvJndcjBRVKTNLuY8ZQtfJrSic6kACOmWMgg8fHQKpH';
+// Internal sync invalidation should bust the cache.
+// Plaintext supplied via env so we don't bake it into a tracked file.
+$key = env('ZEPLOW_TEST_API_KEY', '');
+if ($key === '') {
+    echo "  [SKIP] cache invalidation test: ZEPLOW_TEST_API_KEY env var not set\n";
+    echo "=== done (partial) ===\n";
+    return;
+}
 $req = Request::create('/internal/v1/content/sync', 'POST', [], [], [], [
     'CONTENT_TYPE' => 'application/json',
     'HTTP_ACCEPT'  => 'application/json',
