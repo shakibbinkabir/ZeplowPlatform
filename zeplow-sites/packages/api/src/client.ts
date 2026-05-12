@@ -112,11 +112,16 @@ async function fetchApi<T>(path: string): Promise<T> {
     },
   });
 
+  const body = await res.text();
+  // Diagnostic: surface whether CF Pages builds are getting real API
+  // responses or Imunify360 blocks. Remove once WAF whitelist is in place.
+  console.log(`[zeplow-api] ${res.status} ${body.length}B ${path}`);
+
   if (!res.ok) {
     throw new Error(`API Error: ${res.status} ${res.statusText} for ${url}`);
   }
 
-  const parsed = (await res.json()) as unknown;
+  const parsed = JSON.parse(body) as unknown;
 
   // cPanel's Imunify360 WAF returns HTTP 200 with this shape when it
   // blocks an IP it considers automation. The body is valid JSON, just
