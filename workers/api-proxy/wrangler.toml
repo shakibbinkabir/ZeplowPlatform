@@ -1,0 +1,14 @@
+name = "zeplow-api-proxy"
+main = "src/index.js"
+compatibility_date = "2026-04-01"
+
+# This Worker is consumed only by Cloudflare Pages build agents at build
+# time. No custom domain needed — the *.workers.dev URL is fine.
+#
+# Deploy:
+#   cd workers/api-proxy
+#   npx wrangler login    # one-time, opens browser
+#   npx wrangler deploy
+#
+# Then set NEXT_PUBLIC_API_URL=<workers.dev URL> in the CF Pages env vars
+# for each site that should route through the proxy (currently: zeplow-logic).
