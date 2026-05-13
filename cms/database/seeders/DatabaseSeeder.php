@@ -19,8 +19,12 @@ class DatabaseSeeder extends Seeder
         //
         // Run manually with:
         //   php artisan db:seed --class=Database\\Seeders\\LogicContentSeeder
+        //   php artisan db:seed --class=Database\\Seeders\\ParentContentSeeder
+        //   php artisan db:seed --class=Database\\Seeders\\NarrativeContentSeeder
         //
         // Or uncomment below to include in the default seed run:
         // $this->call(LogicContentSeeder::class);
+        // $this->call(ParentContentSeeder::class);
+        // $this->call(NarrativeContentSeeder::class);
     }
 }
