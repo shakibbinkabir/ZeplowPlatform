@@ -34,11 +34,21 @@ class PageResource extends Resource
                     ->required()
                     ->maxLength(255)
                     ->live(onBlur: true)
-                    ->afterStateUpdated(fn (Forms\Set $set, ?string $state) => $set('slug', Str::slug($state ?? ''))),
+                    ->afterStateUpdated(function (string $operation, ?string $state, Forms\Set $set) {
+                        if ($operation !== 'create') {
+                            return;
+                        }
+                        $set('slug', Str::slug($state ?? ''));
+                    }),
 
                 Forms\Components\TextInput::make('slug')
                     ->required()
                     ->maxLength(255)
+                    ->disabledOn('edit')
+                    ->dehydrated()
+                    ->helperText(fn (string $operation): ?string => $operation === 'create'
+                        ? 'Becomes permanent after save — frontend routes depend on it.'
+                        : null)
                     ->unique(ignoreRecord: true, modifyRuleUsing: function ($rule, Forms\Get $get) {
                         return $rule->where('site_id', $get('site_id'));
                     }),
