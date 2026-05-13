@@ -8,6 +8,13 @@ const SITE_KEY = 'narrative';
 
 export async function generateStaticParams() {
   const projects = await getProjects(SITE_KEY);
+  // `output: 'export'` requires every dynamic route to pre-render at least
+  // one path. Until Phase 6 seeds real narrative projects, return a single
+  // placeholder so the build succeeds. Once getProjects returns real
+  // entries, this fallback is bypassed entirely.
+  if (projects.length === 0) {
+    return [{ slug: 'coming-soon' }];
+  }
   return projects.map((project) => ({ slug: project.slug }));
 }
 

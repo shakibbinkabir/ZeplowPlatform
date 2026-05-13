@@ -8,6 +8,12 @@ const BASE_URL = 'https://narrative.zeplow.com';
 
 export async function generateStaticParams() {
   const posts = await getBlogPosts(SITE_KEY);
+  // `output: 'export'` requires every dynamic route to pre-render at least
+  // one path. Until Phase 6 seeds real narrative blog posts, return a
+  // single placeholder so the build succeeds.
+  if (posts.length === 0) {
+    return [{ slug: 'coming-soon' }];
+  }
   return posts.map((post) => ({ slug: post.slug }));
 }
 
