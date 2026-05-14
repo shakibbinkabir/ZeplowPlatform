@@ -88,7 +88,7 @@ export function Navigation({
             className="transition-opacity hover:opacity-70"
           >
             <img
-              src={darkNavContent ? '/logo.png' : '/logo-light.png'}
+              src={darkNavContent ? '/logo-dark.png' : '/logo.png'}
               alt={siteName}
               height={28}
               className="h-7 w-auto"
