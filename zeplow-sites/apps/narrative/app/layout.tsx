@@ -53,6 +53,8 @@ export default async function RootLayout({
           ctaText={config.cta_text}
           ctaUrl={config.cta_url}
           siteKey={SITE_KEY}
+          logoLight="/logo-light.png"
+          logoDark="/logo.png"
         />
         {children}
         <Footer

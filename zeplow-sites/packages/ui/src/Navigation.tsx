@@ -10,6 +10,8 @@ interface NavigationProps {
   ctaText: string;
   ctaUrl: string;
   siteKey: string;
+  logoLight?: string;
+  logoDark?: string;
 }
 
 const PARENT_LIGHT_TOP_NAV_ROUTES = new Set([
@@ -41,6 +43,8 @@ export function Navigation({
   ctaText,
   ctaUrl,
   siteKey,
+  logoLight = '/logo.png',
+  logoDark = '/logo-dark.png',
 }: NavigationProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -88,7 +92,7 @@ export function Navigation({
             className="transition-opacity hover:opacity-70"
           >
             <img
-              src={darkNavContent ? '/logo-dark.png' : '/logo.png'}
+              src={darkNavContent ? logoDark : logoLight}
               alt={siteName}
               height={28}
               className="h-7 w-auto"
